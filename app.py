@@ -3,7 +3,7 @@ from data_loader import load_all_data
 from solver import solve_timetable
 
 st.set_page_config(layout="wide")
-st.title("📚 ระบบจัดตารางเรียนอัตโนมัติ")
+st.title("📚 ระบบจัดตารางเรียนอัตโนมัติ 2")
 
 mode = st.radio(
     "เลือกโหมดเวลา",
