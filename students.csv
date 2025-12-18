@@ -1,0 +1,15 @@
+Student Group,Department,Year,Program,Number of Students
+AI_Y1,AI,1,Regular,80
+AI_Y1,AI,1,Special,60
+AI_Y2,AI,2,Regular,97
+AI_Y2,AI,2,Special,83
+AI_Y3,AI,3,Regular,79
+AI_Y3,AI,3,Special,45
+AI_Y4,AI,4,Regular,83
+CY_Y1,CY,1,Regular,80
+CY_Y1,CY,1,Special,60
+CY_Y2,CY,2,Regular,88
+CY_Y2,CY,2,Special,80
+CY_Y3,CY,3,Regular,77
+CY_Y3,CY,3,Special,45
+CY_Y4,CY,4,Regular,77

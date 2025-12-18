@@ -1,0 +1,18 @@
+room,capacity,type,building
+6601A,62,lab,SC06
+6601B,48,lab,SC06
+6601C,40,lecture,SC06
+9228,50,lab,SC09
+9227,50,lab,SC09
+9226,50,lab,SC09
+9421,65,lab,SC09
+9422,67,lab,SC09
+9524,45,lab network,SC09
+9603,30,lab network,SC09
+9604,30,lab ai,SC09
+6201,90,lecture,SC06
+6204,60,lecture,SC06
+9525,180,lecture,SC09
+9127,180,lecture,SC09
+9427,36,lecture,SC09
+9527,36,lecture,SC09

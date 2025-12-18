@@ -1,0 +1,42 @@
+course_code,course_name,credit,lecture_hour,lab_hour,section,enrollment_count,optional,require_lab_ai,require_lab_network,lec_online,lab_online
+CP411108,Database Management System,3,2,2,1,53,0,0,0,0,0
+CP411108,Database Management System,3,2,2,2,52,0,0,0,0,0
+CP411108,Database Management System,3,2,2,3,45,0,0,0,0,0
+CP411108,Database Management System,3,2,2,4,46,0,0,0,0,0
+CP411001,Artificial Intelligence,3,2,2,1,55,0,0,0,0,0
+CP411001,Artificial Intelligence,3,2,2,2,45,0,0,0,0,0
+CP411001,Artificial Intelligence,3,2,2,3,45,0,0,0,0,0
+CP411001,Artificial Intelligence,3,2,2,4,45,0,0,0,0,0
+CP412704,Artificial Intelligence Workshop II,1,0,2,1,43,0,0,0,0,0
+CP412704,Artificial Intelligence Workshop II,1,0,2,2,42,0,0,0,0,0
+CP412704,Artificial Intelligence Workshop II,1,0,2,3,58,0,0,0,0,0
+CP412109,Data Engineering,3,2,2,1,42,0,0,0,1,0
+CP412109,Data Engineering,3,2,2,2,42,0,0,0,1,0
+CP412109,Data Engineering,3,2,2,3,58,0,0,0,1,0
+CP412005,Image Processing and Computer vision,3,2,2,1,40,0,0,0,0,0
+CP412005,Image Processing and Computer vision,3,2,2,2,40,0,0,0,0,0
+CP412005,Image Processing and Computer vision,3,2,2,3,45,0,0,0,0,0
+CP412006,Digital Signal Processing,3,2,2,1,40,0,0,0,0,0
+CP412006,Digital Signal Processing,3,2,2,2,40,0,0,0,0,0
+CP412006,Digital Signal Processing,3,2,2,3,45,0,0,0,0,0
+CP412007,Natural Language Processing,3,2,2,1,40,0,0,0,0,0
+CP412007,Natural Language Processing,3,2,2,2,40,0,0,0,0,0
+CP412007,Natural Language Processing,3,2,2,3,45,0,0,0,0,0
+CP412702,Seminar in Artificial Intelligence,3,3,0,1,85,0,0,0,0,0
+CP413202,Intelligent Computing,4,3,2,1,20,1,0,0,0,0
+CP413110,Software Engineering for Artificial Intelligence,3,2,2,1,47,0,0,0,0,0
+CP413110,Software Engineering for Artificial Intelligence,3,2,2,2,43,0,0,0,0,0
+CP002001,Orientation to Co-Operative Education for Computing Students,1,0,2,1,250,0,0,0,0,0
+CP002001,Orientation to Co-Operative Education for Computing Students,1,0,2,2,150,0,0,0,0,0
+CP414781,Research Project in Artificial Intelligence I,3,0,9,1,86,0,0,0,0,1
+CP410821,Cloud Computing and Applications,3,3,0,1,37,0,0,0,1,0
+CP413203,Special Topic in Advanced Computing,3,3,0,1,20,1,0,0,0,0
+CP410867,Artificial Intelligence in Robotics,3,3,0,1,65,1,0,0,0,0
+CP413501,Artificial Intelligence Application in Business,8,6,4,1,20,1,0,0,0,1
+CP413401,Artificial Intelligence Application in Agriculture,7,5,4,1,20,1,0,0,0,1
+CP413601,Application of Artificial Intelligence in Public Affairs,7,5,4,1,20,1,0,0,0,1
+CP413203,Special Topic in Advanced Computing,3,3,0,1,20,1,0,0,0,0
+CP413301,Artificial Intelligence Application in Medical Records,2,1,2,1,20,1,0,0,0,0
+CP413302,Artificial Intelligence Application in Medical Imaging,2,1,2,1,20,1,0,0,0,0
+CP413303,Artificial Intelligence Application in Medical Sensors,2,1,2,1,20,1,0,0,0,0
+CP413304,Artificial Intelligence Application in Medical Bioinformatics,2,1,2,1,20,1,0,0,0,0

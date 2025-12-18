@@ -1,0 +1,15 @@
+course_code,course_name,credit,lecture_hour,lab_hour,section,day,start,room
+LI101002,English II,3,3,0,172,Fri,13:00,GL121
+LI101002,English II,3,3,0,173,Fri,13:00,CILL3
+SC002104,Physical Science,3,3,0,1,Mon,10:30,SC5103
+SC002104,Physical Science,3,3,0,1,Wed,10:30,SC5103
+SC402401,Discrete Mathematics and Applications,3,3,0,2,Tue,10:30,SC1102
+SC402401,Discrete Mathematics and Applications,3,3,0,2,Fri,10:30,SC1102
+SC402401,Discrete Mathematics and Applications,3,3,0,3,Tue,10:30,SC1103
+SC402401,Discrete Mathematics and Applications,3,3,0,3,Fri,10:30,SC1103
+LI101002,English II,3,3,0,44,Mon,13:00,GL117
+LI101002,English II,3,3,0,45,Mon,13:00,GL115
+SC002104,Physical Science,3,3,0,2,Fri,9:00,SC5103
+SC002104,Physical Science,3,3,0,2,Fri,9:00,SC5103
+LI101004,English IV,3,3,0,144,Mon,9:00,SC9526
+LI101004,English IV,3,3,0,145,Mon,9:00,SC9527

@@ -1,0 +1,33 @@
+course_code,course_name,credit,lecture_hour,lab_hour,section,enrollment_count,require_lab_ai,require_lab_network,lec_online,lab_online
+CP421022,Introduction to Computer Organization and Architecture,3,2,2,1,48,0,0,0,0
+CP421022,Introduction to Computer Organization and Architecture,3,2,2,2,45,0,0,0,0
+CP421023,Algorithm and Data structure,3,2,2,1,45,0,0,0,0
+CP421023,Algorithm and Data structure,3,2,2,2,45,0,0,0,0
+CP421024,Object Oriented Programming,3,2,2,1,45,1,0,0,0
+CP421024,Object Oriented Programming,3,2,2,2,45,0,0,0,0
+CP001001,ABCD for All Professions,3,3,0,39,88,0,0,1,0
+CP421022,Introduction to Computer Organization and Architecture,3,2,2,3,41,0,0,0,0
+CP421022,Introduction to Computer Organization and Architecture,3,2,2,4,40,0,0,0,0
+CP421023,Algorithm and Data structure,3,2,2,3,40,0,0,0,0
+CP421023,Algorithm and Data structure,3,2,2,4,40,0,0,0,0
+CP421024,Object Oriented Programming,3,2,2,3,40,0,0,0,0
+CP421024,Object Oriented Programming,3,2,2,4,40,0,0,0,0
+CP001001,ABCD for All Professions,3,3,0,40,90,0,0,1,0
+CP422031,Introduction to Cybersecurity,3,2,2,1,38,0,1,0,0
+CP422031,Introduction to Cybersecurity,3,2,2,2,38,0,1,0,0
+CP422013,Fundamental of Computer System Engineer,3,2,2,1,41,0,0,0,0
+CP422013,Fundamental of Computer System Engineer,3,2,2,2,40,0,0,0,0
+CP422641,Artificial Intelligence in Cybersecurity,3,2,2,1,40,0,0,0,0
+CP422641,Artificial Intelligence in Cybersecurity,3,2,2,2,40,0,0,0,0
+CP422032,Cloud Computing and Application,3,2,2,1,80,1,0,1,0
+CP422012,Introduction to Wireless and Mobile Networks with Internet of Things,3,2,2,1,40,0,1,0,0
+CP422012,Introduction to Wireless and Mobile Networks with Internet of Things,3,2,2,2,40,0,1,0,0
+CP422031,Introduction to Cybersecurity,3,2,2,3,45,0,1,0,0
+CP422013,Fundamental of Computer System Engineer,3,2,2,3,45,0,0,0,0
+CP422641,Artificial Intelligence in Cybersecurity,3,2,2,3,45,0,0,0,0
+CP422032,Cloud Computing and Application,3,2,2,2,45,0,0,0,0
+CP422012,Introduction to Wireless and Mobile Networks with Internet of Things,3,2,2,3,45,1,1,0,0
+CP423151,Computing Career Professional Standards,1,1,0,1,80,0,0,1,0
+CP423131,Cybersecurity Career Professional Standards,2,2,0,1,77,0,0,1,0
+CP423132,Advance Cybersecurity Career Professional Standards,3,3,0,1,77,0,0,1,0
+CP423741,"Cybersecurity Research Methodology, Workshop and Seminar",3,3,0,1,80,0,0,1,0
