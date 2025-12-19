@@ -5,6 +5,14 @@ import math
 import re
 import io
 
+with st.expander("📄 Active Data Sources"):
+st.write("room.csv:", "Uploaded" if uploaded_room else "Default")
+st.write("teacher_courses.csv:", "Uploaded" if uploaded_teacher_courses else "Default")
+st.write("ai_in_courses.csv:", "Uploaded" if uploaded_ai_in else "Default")
+
+
+
+
 # ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="Automatic Scheduler", layout="wide")
 st.title("🎓 Automatic Course Scheduler")
@@ -23,6 +31,18 @@ SCHEDULE_MODE = st.radio(
 )
 
 st.write(f"**Current Mode:** {schedule_mode_desc[SCHEDULE_MODE]}")
+
+st.subheader("📂 Upload CSV Files (Optional)")
+
+uploaded_room = st.file_uploader("Upload room.csv", type="csv")
+uploaded_teacher_courses = st.file_uploader("Upload teacher_courses.csv", type="csv")
+uploaded_ai_in = st.file_uploader("Upload ai_in_courses.csv", type="csv")
+uploaded_cy_in = st.file_uploader("Upload cy_in_courses.csv", type="csv")
+uploaded_teachers = st.file_uploader("Upload all_teachers.csv", type="csv")
+uploaded_ai_out = st.file_uploader("Upload ai_out_courses.csv", type="csv")
+uploaded_cy_out = st.file_uploader("Upload cy_out_courses.csv", type="csv")
+
+
 
 # ปุ่มกดเพื่อเริ่มการจัดตาราง
 run_button = st.button("🚀 Run Scheduler")
@@ -96,19 +116,18 @@ def calculate_schedule():
 
     # --- Data Loading ---
     try:
-        df_room = pd.read_csv('Web_schedule-main/Web_schedule-main/room.csv')
-        df_teacher_courses = pd.read_csv('Web_schedule-main/Web_schedule-main/teacher_courses.csv')
-        df_ai_in = pd.read_csv('Web_schedule-main/Web_schedule-main/ai_in_courses.csv')
-        df_cy_in = pd.read_csv('Web_schedule-main/Web_schedule-main/cy_in_courses.csv')
-        all_teacher = pd.read_csv('Web_schedule-main/Web_schedule-main/all_teachers.csv')
-        
-        df_ai_out = pd.read_csv('Web_schedule-main/Web_schedule-main/ai_out_courses.csv')
-        df_cy_out = pd.read_csv('Web_schedule-main/Web_schedule-main/cy_out_courses.csv')
-        
+        df_room = pd.read_csv(uploaded_room) if uploaded_room else pd.read_csv("room.csv")
+        df_teacher_courses = pd.read_csv(uploaded_teacher_courses) if uploaded_teacher_courses else pd.read_csv("teacher_courses.csv")
+        df_ai_in = pd.read_csv(uploaded_ai_in) if uploaded_ai_in else pd.read_csv("ai_in_courses.csv")
+        df_cy_in = pd.read_csv(uploaded_cy_in) if uploaded_cy_in else pd.read_csv("cy_in_courses.csv")
+        all_teacher = pd.read_csv(uploaded_teachers) if uploaded_teachers else pd.read_csv("all_teachers.csv")
+        df_ai_out = pd.read_csv(uploaded_ai_out) if uploaded_ai_out else pd.read_csv("ai_out_courses.csv")
+        df_cy_out = pd.read_csv(uploaded_cy_out) if uploaded_cy_out else pd.read_csv("cy_out_courses.csv")
+
         room_list = df_room.to_dict('records')
         room_list.append({'room': 'Online', 'capacity': 9999, 'type': 'virtual'})
-    except FileNotFoundError as e:
-        st.error(f"❌ Error: Missing CSV file. Details: {e}")
+    except Exception as e:
+        st.error(f"❌ Error loading CSV files: {e}")
         return None, None
 
     # --- Data Cleaning & Prep ---
@@ -214,6 +233,23 @@ def calculate_schedule():
                     'req_network': (row.get('require_lab_network', 0) == 1)
                 })
 
+
+    
+    required_files = {
+        "room.csv": uploaded_room,
+        "teacher_courses.csv": uploaded_teacher_courses,
+        "ai_in_courses.csv": uploaded_ai_in,
+        "cy_in_courses.csv": uploaded_cy_in,
+    }
+    
+    missing = [name for name, f in required_files.items() if f is None]
+    
+    if run_button and missing:
+        st.warning(f"⚠️ Missing uploaded files: {', '.join(missing)} (Using default CSV instead)")
+
+
+
+    
     # --- Solver ---
     model = cp_model.CpModel()
     schedule = {}
