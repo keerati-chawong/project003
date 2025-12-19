@@ -186,27 +186,72 @@ def calculate_schedule():
         return res, []
     return None, None
 
+
 # ==========================================
-# 5. UI Controller
+# 5. Controller & UI Display (Updated with Teacher View)
 # ==========================================
 if run_button:
-    results, _ = calculate_schedule()
-    if results:
-        st.session_state['schedule_results'] = pd.DataFrame(results)
-        st.session_state['has_run'] = True
-        st.success("🎉 Schedule Completed!")
-    else:
-        st.error("💥 Solver Failed: ข้อมูลหนาแน่นเกินไป หรือเงื่อนไข Flexible Mode ขัดแย้งกับวิชาที่ Fix ไว้")
+    with st.spinner("กำลังคำนวณตารางสอนที่ดีที่สุด..."):
+        res, _ = calculate_schedule()
+        if res:
+            st.session_state['schedule_results'] = pd.DataFrame(res)
+            st.session_state['has_run'] = True
+            st.success("✅ จัดตารางสอนสำเร็จ!")
+        else:
+            st.error("❌ ไม่สามารถจัดตารางได้: เงื่อนไขแน่นเกินไป หรือวิชาที่ Fix ไว้ชนกันเอง")
 
 if st.session_state['has_run']:
     df_res = st.session_state['schedule_results']
-    selected_room = st.selectbox("🔍 View by Room:", sorted(df_res['Room'].unique()))
     
-    # Simple Display Grid
-    grid = pd.DataFrame('', index=['Mon','Tue','Wed','Thu','Fri'], columns=[f"{h:02d}:00" for h in range(8, 20)])
-    r_df = df_res[df_res['Room'] == selected_room]
-    for _, r in r_df.iterrows():
-        grid.at[r['Day'], r['Start'][:2]+":00"] = f"{r['Course']} ({r['Type']})"
-    
-    st.table(grid)
-    st.download_button("📥 Download CSV", df_res.to_csv(index=False), "schedule.csv")
+    st.divider()
+    st.subheader("📊 ข้อมูลตารางสอน (Visual Timetable)")
+
+    # 1. เลือกโหมดการดู
+    view_mode = st.radio("เลือกมุมมองที่ต้องการ:", ["ดูตามห้องเรียน (Room)", "ดูตามรายชื่ออาจารย์ (Teacher)"], horizontal=True)
+
+    if view_mode == "ดูตามห้องเรียน (Room)":
+        target_list = sorted(df_res['Room'].unique())
+        selection = st.selectbox("🔍 เลือกห้องเรียน:", target_list)
+        filtered_df = df_res[df_res['Room'] == selection]
+        display_title = f"📍 ตารางการใช้ห้อง: {selection}"
+    else:
+        # แยกรายชื่ออาจารย์ที่อาจสอนร่วมกัน (เช่น P1, J1 -> [P1, J1])
+        all_teachers = set()
+        for t_str in df_res['Teacher'].fillna('Staff'):
+            for t in str(t_str).split(','):
+                all_teachers.add(t.strip())
+        
+        selection = st.selectbox("🔍 เลือกชื่ออาจารย์:", sorted(list(all_teachers)))
+        # กรองข้อมูลวิชาที่ชื่ออาจารย์ปรากฏอยู่
+        filtered_df = df_res[df_res['Teacher'].str.contains(selection, na=False)]
+        display_title = f"👨‍🏫 ตารางสอนอาจารย์: {selection}"
+
+    # 2. ฟังก์ชันสร้าง Grid ตารางสอน (ปรับปรุงให้รองรับรายละเอียดมากขึ้น)
+    def render_timetable(df):
+        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        # สร้างช่วงเวลาตั้งแต่ 08:00 - 19:00
+        time_cols = [f"{h:02d}:00" for h in range(8, 20)]
+        grid = pd.DataFrame('', index=days, columns=time_cols)
+
+        for _, row in df.iterrows():
+            # ใช้เวลา Start ในการปักตำแหน่งในตาราง
+            start_hour = row['Start'].split(':')[0] + ":00"
+            if start_hour in grid.columns:
+                # แสดงรหัสวิชา, เซกชัน, และประเภท (และห้องถ้าดูในมุมมองอาจารย์)
+                info = f"{row['Course']} (S{row['Sec']}) - {row['Type']}"
+                if view_mode == "ดูตามรายชื่ออาจารย์ (Teacher)":
+                    info += f"\nRm: {row['Room']}"
+                
+                # ป้องกันข้อความทับกันหากมีวิชาในชั่วโมงเดียวกัน (ถ้ามี)
+                existing = grid.at[row['Day'], start_hour]
+                grid.at[row['Day'], start_hour] = (existing + "\n" + info).strip()
+        
+        return grid
+
+    st.info(f"**{display_title}**")
+    st.table(render_timetable(filtered_df))
+
+    # 3. ปุ่มดาวน์โหลดข้อมูลทั้งหมด
+    st.divider()
+    csv_data = df_res.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 ดาวน์โหลดตารางสอนทั้งหมด (CSV)", csv_data, "full_schedule.csv", "text/csv")
