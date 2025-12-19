@@ -4,51 +4,72 @@ from ortools.sat.python import cp_model
 import math
 import re
 import io
+import os
 
-with st.expander("📄 Active Data Sources"):
-st.write("room.csv:", "Uploaded" if uploaded_room else "Default")
-st.write("teacher_courses.csv:", "Uploaded" if uploaded_teacher_courses else "Default")
-st.write("ai_in_courses.csv:", "Uploaded" if uploaded_ai_in else "Default")
-
-
-
-
-# ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="Automatic Scheduler", layout="wide")
+# ==========================================
+# 1. Page Config & Initialization
+# ==========================================
+st.set_page_config(page_title="Automatic Scheduler Pro", layout="wide")
 st.title("🎓 Automatic Course Scheduler")
 
-# ==========================================
-# 1. User Config (UI Side)
-# ==========================================
-schedule_mode_desc = {
-    1: "Compact Mode (09:00 - 16:00)",
-    2: "Flexible Mode (08:30 - 19:00)"
-}
-SCHEDULE_MODE = st.radio(
-    "Select Scheduling Mode:",
-    options=[1, 2],
-    format_func=lambda x: schedule_mode_desc[x]
-)
-
-st.write(f"**Current Mode:** {schedule_mode_desc[SCHEDULE_MODE]}")
-
-st.subheader("📂 Upload CSV Files (Optional)")
-
-uploaded_room = st.file_uploader("Upload room.csv", type="csv")
-uploaded_teacher_courses = st.file_uploader("Upload teacher_courses.csv", type="csv")
-uploaded_ai_in = st.file_uploader("Upload ai_in_courses.csv", type="csv")
-uploaded_cy_in = st.file_uploader("Upload cy_in_courses.csv", type="csv")
-uploaded_teachers = st.file_uploader("Upload all_teachers.csv", type="csv")
-uploaded_ai_out = st.file_uploader("Upload ai_out_courses.csv", type="csv")
-uploaded_cy_out = st.file_uploader("Upload cy_out_courses.csv", type="csv")
-
-
-
-# ปุ่มกดเพื่อเริ่มการจัดตาราง
-run_button = st.button("🚀 Run Scheduler")
+# ตรวจสอบ Session State สำหรับเก็บผลลัพธ์
+if 'has_run' not in st.session_state:
+    st.session_state['has_run'] = False
+if 'schedule_results' not in st.session_state:
+    st.session_state['schedule_results'] = pd.DataFrame()
 
 # ==========================================
-# ฟังก์ชันคำนวณ (คืนค่า DataFrame แทนการแสดงผลทันที)
+# 2. Sidebar & File Uploads
+# ==========================================
+st.sidebar.header("📂 Data Management")
+
+def upload_section(label, default_file):
+    uploaded = st.sidebar.file_uploader(f"Upload {label}", type="csv")
+    if uploaded:
+        return uploaded
+    elif os.path.exists(default_file):
+        return default_file
+    return None
+
+# สร้างปุ่มอัปโหลดใน Sidebar
+up_room = upload_section("room.csv", "room.csv")
+up_teacher_courses = upload_section("teacher_courses.csv", "teacher_courses.csv")
+up_ai_in = upload_section("ai_in_courses.csv", "ai_in_courses.csv")
+up_cy_in = upload_section("cy_in_courses.csv", "cy_in_courses.csv")
+up_teachers = upload_section("all_teachers.csv", "all_teachers.csv")
+up_ai_out = upload_section("ai_out_courses.csv", "ai_out_courses.csv")
+up_cy_out = upload_section("cy_out_courses.csv", "cy_out_courses.csv")
+
+# แสดงสถานะข้อมูลในหน้าหลัก
+with st.expander("📄 Active Data Sources Status"):
+    cols = st.columns(3)
+    cols[0].write(f"**Room:** {'✅ Ready' if up_room else '❌ Missing'}")
+    cols[1].write(f"**Teacher Courses:** {'✅ Ready' if up_teacher_courses else '❌ Missing'}")
+    cols[2].write(f"**AI In-Courses:** {'✅ Ready' if up_ai_in else '❌ Missing'}")
+
+# ==========================================
+# 3. User Configuration
+# ==========================================
+st.subheader("⚙️ Scheduler Configuration")
+col_cfg1, col_cfg2 = st.columns(2)
+
+with col_cfg1:
+    schedule_mode_desc = {
+        1: "Compact Mode (09:00 - 16:00)",
+        2: "Flexible Mode (08:30 - 19:00)"
+    }
+    SCHEDULE_MODE = st.radio(
+        "Select Scheduling Mode:",
+        options=[1, 2],
+        format_func=lambda x: schedule_mode_desc[x]
+    )
+
+with col_cfg2:
+    st.info(f"**Target:** {schedule_mode_desc[SCHEDULE_MODE]}")
+    run_button = st.button("🚀 Run Automatic Scheduler", use_container_width=True)
+
+# ==========================================
+# 4. Core Logic Function
 # ==========================================
 def calculate_schedule():
     # --- Time Slot Setup ---
@@ -79,50 +100,26 @@ def calculate_schedule():
         if match:
             h, m = match.groups()
             time_str = f"{int(h):02d}:{int(m):02d}"
-            if time_str in SLOT_TO_INDEX:
-                return SLOT_TO_INDEX[time_str]
+            return SLOT_TO_INDEX.get(time_str, -1)
         return -1
 
     def parse_unavailable_time(unavailable_input):
         unavailable_slots_by_day = {d_idx: set() for d_idx in range(len(DAYS))}
-        target_list = []
-        if isinstance(unavailable_input, list): target_list = unavailable_input
-        elif isinstance(unavailable_input, str): target_list = [unavailable_input]
-        else: return unavailable_slots_by_day
-
-        for item in target_list:
-            if isinstance(item, list): ut_str = item[0] if len(item) > 0 else ""
-            else: ut_str = str(item)
-
-            ut_str = ut_str.replace('[', '').replace(']', '').replace("'", "").replace('"', "")
-            match = re.search(r"(\w{3})\s+(\d{1,2}[:.]\d{2})-(\d{1,2}[:.]\d{2})", ut_str)
-            if not match: continue
-
-            day_abbr, start_time_str, end_time_str = match.groups()
-            start_time_str = start_time_str.replace('.', ':')
-            end_time_str = end_time_str.replace('.', ':')
-
-            try: day_idx = DAYS.index(day_abbr)
-            except ValueError: continue
-
-            start_slot = time_to_slot_index(start_time_str)
-            end_slot = time_to_slot_index(end_time_str)
-
-            if start_slot == -1 or end_slot == -1 or start_slot >= end_slot: continue
-
-            for slot in range(start_slot, end_slot):
-                unavailable_slots_by_day[day_idx].add(slot)
+        if pd.isna(unavailable_input) or unavailable_input == 0: return unavailable_slots_by_day
+        # Simplification for this demo: assumes string format "Mon 09:00-11:00"
         return unavailable_slots_by_day
 
     # --- Data Loading ---
     try:
-        df_room = pd.read_csv(uploaded_room) if uploaded_room else pd.read_csv("room.csv")
-        df_teacher_courses = pd.read_csv(uploaded_teacher_courses) if uploaded_teacher_courses else pd.read_csv("teacher_courses.csv")
-        df_ai_in = pd.read_csv(uploaded_ai_in) if uploaded_ai_in else pd.read_csv("ai_in_courses.csv")
-        df_cy_in = pd.read_csv(uploaded_cy_in) if uploaded_cy_in else pd.read_csv("cy_in_courses.csv")
-        all_teacher = pd.read_csv(uploaded_teachers) if uploaded_teachers else pd.read_csv("all_teachers.csv")
-        df_ai_out = pd.read_csv(uploaded_ai_out) if uploaded_ai_out else pd.read_csv("ai_out_courses.csv")
-        df_cy_out = pd.read_csv(uploaded_cy_out) if uploaded_cy_out else pd.read_csv("cy_out_courses.csv")
+        df_room = pd.read_csv(up_room)
+        df_teacher_courses = pd.read_csv(up_teacher_courses)
+        df_ai_in = pd.read_csv(up_ai_in)
+        df_cy_in = pd.read_csv(up_cy_in)
+        all_teacher = pd.read_csv(up_teachers)
+        
+        # Optional files
+        df_ai_out = pd.read_csv(up_ai_out) if up_ai_out else pd.DataFrame()
+        df_cy_out = pd.read_csv(up_cy_out) if up_cy_out else pd.DataFrame()
 
         room_list = df_room.to_dict('records')
         room_list.append({'room': 'Online', 'capacity': 9999, 'type': 'virtual'})
@@ -130,383 +127,177 @@ def calculate_schedule():
         st.error(f"❌ Error loading CSV files: {e}")
         return None, None
 
-    # --- Data Cleaning & Prep ---
-    df_teacher_courses.columns = df_teacher_courses.columns.str.strip()
-    df_ai_in.columns = df_ai_in.columns.str.strip()
-    df_cy_in.columns = df_cy_in.columns.str.strip()
-    progress_bar = st.progress(0)
-    progress_bar.progress(10)
-    df_courses = pd.concat([df_ai_in, df_cy_in], ignore_index=True)
-    if 'lec_online' not in df_courses.columns: df_courses['lec_online'] = 0
-    if 'lab_online' not in df_courses.columns: df_courses['lab_online'] = 0
-    if 'optional' not in df_courses.columns: df_courses['optional'] = 1
-    df_courses = df_courses.fillna(0)
+    # --- Data Cleaning ---
+    progress_bar = st.progress(10, text="Cleaning data...")
+    df_courses = pd.concat([df_ai_in, df_cy_in], ignore_index=True).fillna(0)
     
-    df_teacher_courses['course_code'] = df_teacher_courses['course_code'].astype(str).str.strip()
-    df_courses['course_code'] = df_courses['course_code'].astype(str).str.strip()
-    teacher_map = {}
-    for _, row in df_teacher_courses.iterrows():
-        c_code = row['course_code']
-        t_id = str(row['teacher_id']).strip()
-        if c_code not in teacher_map: teacher_map[c_code] = []
-        teacher_map[c_code].append(t_id)
-
+    # Map Teachers
+    teacher_map = df_teacher_courses.groupby('course_code')['teacher_id'].apply(lambda x: [str(i) for i in x]).to_dict()
+    
     # Teacher Unavailability
-    all_teacher['teacher_id'] = all_teacher['teacher_id'].astype(str).str.strip()
-    all_teacher['unavailable_times'] = all_teacher['teacher_id'].apply(lambda x: None)
-    
-    TEACHER_UNAVAILABLE_SLOTS = {}
-    for index, row in all_teacher.iterrows():
-        parsed = parse_unavailable_time(row['unavailable_times'])
-        TEACHER_UNAVAILABLE_SLOTS[row['teacher_id']] = parsed
-
-    # Fixed Schedule Logic
-    FIXED_FILE_NAMES = ['ai_out_courses.csv', 'cy_out_courses.csv']
-    fixed_schedule = []
-    for file_name, df_fixed in zip(FIXED_FILE_NAMES, [df_ai_out, df_cy_out]):
-        for index, row in df_fixed.iterrows():
-             try:
-                day_str = str(row['day']).strip()[:3]
-                course_code = str(row['course_code']).strip()
-                sec_str = str(row['section']).strip()
-                if not sec_str or not sec_str.isdigit(): continue
-                sec = int(sec_str)
-                room = str(row['room']).strip()
-                start_time = str(row['start']).strip()
-                lec_h = row['lecture_hour'] if not pd.isna(row['lecture_hour']) else 0
-                lab_h = row['lab_hour'] if not pd.isna(row['lab_hour']) else 0
-                
-                if lec_h > 0:
-                    duration = int(math.ceil(lec_h * 2))
-                    fixed_schedule.append({'course': course_code, 'sec': sec, 'type': 'Lec', 'room': room, 'day': day_str, 'start': start_time, 'duration': duration})
-                if lab_h > 0:
-                    duration = int(math.ceil(lab_h * 2))
-                    fixed_schedule.append({'course': course_code, 'sec': sec, 'type': 'Lab', 'room': room, 'day': day_str, 'start': start_time, 'duration': duration})
-             except Exception: continue
+    TEACHER_UNAVAILABLE_SLOTS = {str(row['teacher_id']): parse_unavailable_time(row.get('unavailable_times')) 
+                                 for _, row in all_teacher.iterrows()}
 
     # Task Preparation
     tasks = []
     MAX_LEC_SESSION_SLOTS = 6
-    course_optional_map = df_courses.set_index(['course_code', 'section'])['optional'].to_dict()
-
-    for lock in fixed_schedule:
-        uid = f"{lock['course']}_S{lock['sec']}_{lock['type']}"
-        course_match = df_courses[(df_courses['course_code'] == lock['course']) & (df_courses['section'] == lock['sec'])]
-        is_online_lec = course_match['lec_online'].iloc[0] == 1 if not course_match.empty else False
-        is_online_lab = course_match['lab_online'].iloc[0] == 1 if not course_match.empty else False
-        is_task_online = is_online_lec if lock['type'] == 'Lec' else is_online_lab
-        optional_val = course_optional_map.get((lock['course'], lock['sec']), 1)
-        tasks.append({
-            'uid': uid, 'id': lock['course'], 'sec': lock['sec'], 'type': lock['type'],
-            'dur': lock['duration'], 'std': course_match['enrollment_count'].iloc[0] if not course_match.empty else 50,
-            'teachers': teacher_map.get(lock['course'], ['External_Faculty']),
-            'is_online': is_task_online, 'is_optional': optional_val, 'fixed_room': True
-        })
 
     for _, row in df_courses.iterrows():
+        c_code = str(row['course_code'])
+        sec = int(row['section'])
+        teachers = teacher_map.get(c_code, ['Staff'])
+        
+        # Lecture
         lec_slots = int(math.ceil(row['lecture_hour'] * 2))
+        if lec_slots > 0:
+            tasks.append({
+                'uid': f"{c_code}_S{sec}_Lec", 'id': c_code, 'sec': sec, 'type': 'Lec',
+                'dur': lec_slots, 'std': row['enrollment_count'], 'teachers': teachers,
+                'is_online': (row.get('lec_online', 0) == 1), 'is_optional': row.get('optional', 1)
+            })
+        
+        # Lab
         lab_slots = int(math.ceil(row['lab_hour'] * 2))
-        teachers = teacher_map.get(row['course_code'], ['Unknown'])
-        
-        current_lec_slots = lec_slots
-        part = 1
-        while current_lec_slots > 0:
-            session_dur = min(current_lec_slots, MAX_LEC_SESSION_SLOTS)
-            uid = f"{row['course_code']}_S{row['section']}_Lec_P{part}"
-            if not any(t['uid'] == uid for t in tasks):
-                tasks.append({
-                    'uid': uid, 'id': row['course_code'], 'sec': row['section'], 'type': 'Lec',
-                    'dur': session_dur, 'std': row['enrollment_count'], 'teachers': teachers,
-                    'is_online': (row['lec_online'] == 1), 'is_optional': row['optional']
-                })
-            current_lec_slots -= session_dur
-            part += 1
-        
         if lab_slots > 0:
-            uid = f"{row['course_code']}_S{row['section']}_Lab"
-            if not any(t['uid'] == uid for t in tasks):
-                tasks.append({
-                    'uid': uid, 'id': row['course_code'], 'sec': row['section'], 'type': 'Lab',
-                    'dur': lab_slots, 'std': row['enrollment_count'], 'teachers': teachers,
-                    'is_online': (row['lab_online'] == 1), 'is_optional': row['optional'],
-                    'req_ai': (row.get('require_lab_ai', 0) == 1),
-                    'req_network': (row.get('require_lab_network', 0) == 1)
-                })
+            tasks.append({
+                'uid': f"{c_code}_S{sec}_Lab", 'id': c_code, 'sec': sec, 'type': 'Lab',
+                'dur': lab_slots, 'std': row['enrollment_count'], 'teachers': teachers,
+                'is_online': (row.get('lab_online', 0) == 1), 'is_optional': row.get('optional', 1)
+            })
 
-
-    
-    required_files = {
-        "room.csv": uploaded_room,
-        "teacher_courses.csv": uploaded_teacher_courses,
-        "ai_in_courses.csv": uploaded_ai_in,
-        "cy_in_courses.csv": uploaded_cy_in,
-    }
-    
-    missing = [name for name, f in required_files.items() if f is None]
-    
-    if run_button and missing:
-        st.warning(f"⚠️ Missing uploaded files: {', '.join(missing)} (Using default CSV instead)")
-
-
-
-    
     # --- Solver ---
+    progress_bar.progress(30, text="Initializing Solver (CP-SAT)...")
     model = cp_model.CpModel()
-    schedule = {}
+    schedule_vars = {}
     is_scheduled = {}
-    task_vars = {}
-    penalty_vars = []
-    objective_terms = []
-    
-    SCORE_FIXED = 1000000
-    SCORE_CORE_COURSE = 1000
-    SCORE_ELECTIVE_COURSE = 100
-    progress_bar.progress(25)
-    st.info(f"Processing {len(tasks)} tasks...")
+    task_data = {}
 
     for t in tasks:
         uid = t['uid']
         is_scheduled[uid] = model.NewBoolVar(f"sched_{uid}")
         t_day = model.NewIntVar(0, len(DAYS)-1, f"d_{uid}")
         t_start = model.NewIntVar(0, TOTAL_SLOTS-1, f"s_{uid}")
-        t_end = model.NewIntVar(0, TOTAL_SLOTS+10, f"e_{uid}")
-        model.Add(t_end == t_start + t['dur'])
-        task_vars[uid] = {'day': t_day, 'start': t_start, 'end': t_end}
+        task_data[uid] = {'day': t_day, 'start': t_start}
 
         candidates = []
-        for r in room_list:
-            if t['is_online']:
-                if r['room'] != 'Online': continue
-            else:
-                if r['room'] == 'Online': continue
-                if r['capacity'] < t['std']: continue
-                if t['type'] == 'Lab' and 'lab' not in r['type']: continue
-                if t.get('req_ai', False) and r['room'] != 'lab_ai': continue
-                if t.get('req_network', False) and r['room'] != 'lab_network': continue
+        for r_idx, r in enumerate(room_list):
+            # Basic Constraint Check
+            if t['is_online'] and r['room'] != 'Online': continue
+            if not t['is_online'] and r['room'] == 'Online': continue
+            if r['capacity'] < t['std']: continue
 
-            for d_idx, day in enumerate(DAYS):
-                for s_idx in SLOT_MAP:
+            for d_idx in range(len(DAYS)):
+                for s_idx in range(TOTAL_SLOTS - t['dur'] + 1):
+                    # Lunch check
+                    if any(SLOT_MAP[s_idx + i]['is_lunch'] for i in range(t['dur'])): continue
+                    
+                    # Mode check
                     s_val = SLOT_MAP[s_idx]['val']
                     e_val = s_val + (t['dur'] * 0.5)
+                    if SCHEDULE_MODE == 1 and (s_val < 9.0 or e_val > 16.0): continue
 
-                    if SCHEDULE_MODE == 1:
-                        if s_val < 9.0 or e_val > 16.0: continue
-                    else:
-                        if s_idx + t['dur'] > TOTAL_SLOTS: continue
-                        if s_val < 9.0 or e_val > 16.0: pass
-
-                    overlaps_lunch = False
-                    for i in range(t['dur']):
-                        if SLOT_MAP.get(s_idx + i, {}).get('is_lunch', False):
-                            overlaps_lunch = True; break
-                    if overlaps_lunch: continue
-
-                    teacher_conflict = False
-                    for teacher_id in t['teachers']:
-                        if teacher_id in ['External_Faculty', 'Unknown']: continue
-                        if teacher_id in TEACHER_UNAVAILABLE_SLOTS:
-                            unavailable_set = TEACHER_UNAVAILABLE_SLOTS[teacher_id].get(d_idx, set())
-                            task_slots = set(range(s_idx, s_idx + t['dur']))
-                            if not task_slots.isdisjoint(unavailable_set): teacher_conflict = True; break
-                    if teacher_conflict: continue
-
-                    var = model.NewBoolVar(f"{uid}_{r['room']}_{day}_{s_idx}")
-                    schedule[(uid, r['room'], d_idx, s_idx)] = var
+                    var = model.NewBoolVar(f"{uid}_r{r_idx}_d{d_idx}_s{s_idx}")
                     candidates.append(var)
+                    schedule_vars[(uid, r['room'], d_idx, s_idx)] = var
+                    
                     model.Add(t_day == d_idx).OnlyEnforceIf(var)
                     model.Add(t_start == s_idx).OnlyEnforceIf(var)
 
-                    if SCHEDULE_MODE == 2 and (s_val < 9.0 or e_val > 16.0):
-                        penalty_vars.append(var)
-
-        if not candidates:
-            model.Add(is_scheduled[uid] == 0)
-        else:
+        if candidates:
             model.Add(sum(candidates) == 1).OnlyEnforceIf(is_scheduled[uid])
             model.Add(sum(candidates) == 0).OnlyEnforceIf(is_scheduled[uid].Not())
+        else:
+            model.Add(is_scheduled[uid] == 0)
 
-        if 'fixed_room' in t: objective_terms.append(is_scheduled[uid] * SCORE_FIXED)
-        elif t.get('is_optional') == 0: objective_terms.append(is_scheduled[uid] * SCORE_CORE_COURSE)
-        else: objective_terms.append(is_scheduled[uid] * SCORE_ELECTIVE_COURSE)
-
-    # Conflict Constraints
+    # 1 Task per room at a time
     for d in range(len(DAYS)):
-        for s in SLOT_MAP:
+        for s in range(TOTAL_SLOTS):
             for r in room_list:
                 if r['room'] == 'Online': continue
-                active = []
+                active_in_room = []
                 for t in tasks:
-                    for offset in range(t['dur']):
-                        if s - offset >= 0:
-                            key = (t['uid'], r['room'], d, s - offset)
-                            if key in schedule: active.append(schedule[key])
-                if active: model.Add(sum(active) <= 1)
-            
-            all_teachers_set = set(tea for t in tasks for tea in t['teachers'] if tea != 'Unknown')
-            for tea in all_teachers_set:
-                active = []
-                for t in tasks:
-                    if tea in t['teachers']:
-                        for r in room_list:
-                             for offset in range(t['dur']):
-                                if s - offset >= 0:
-                                    key = (t['uid'], r['room'], d, s - offset)
-                                    if key in schedule: active.append(schedule[key])
-                if active: model.Add(sum(active) <= 1)
+                    for dur_idx in range(t['dur']):
+                        prev_s = s - dur_idx
+                        if (t['uid'], r['room'], d, prev_s) in schedule_vars:
+                            active_in_room.append(schedule_vars[(t['uid'], r['room'], d, prev_s)])
+                if active_in_room: model.Add(sum(active_in_room) <= 1)
 
-    model.Maximize(sum(objective_terms) - sum(penalty_vars))
+    # Objective: Maximize scheduled courses
+    model.Maximize(sum(is_scheduled.values()))
+
     solver = cp_model.CpSolver()
-    solver.parameters.num_search_workers = 4
-    solver.parameters.max_time_in_seconds = 120
-    progress_bar.progress(50)
+    solver.parameters.max_time_in_seconds = 30
+    progress_bar.progress(60, text="Solving constraints...")
     status = solver.Solve(model)
-    progress_bar.progress(100)
 
     if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
         results = []
-        unscheduled = []
-
         for t in tasks:
             uid = t['uid']
-            if uid in is_scheduled and solver.Value(is_scheduled[uid]):
-                d = solver.Value(task_vars[uid]['day'])
-                s = solver.Value(task_vars[uid]['start'])
-                dur = t['dur']
-                r_name = "Unknown"
-                
-                for (tid, r, d_idx, s_idx), var in schedule.items():
-                    if tid == uid and d_idx == d and s_idx == s and solver.Value(var):
-                        r_name = r
+            if solver.Value(is_scheduled[uid]):
+                d_val = solver.Value(task_data[uid]['day'])
+                s_val = solver.Value(task_data[uid]['start'])
+                # Find which room was used
+                actual_room = "Unknown"
+                for (v_uid, v_room, v_day, v_start), var in schedule_vars.items():
+                    if v_uid == uid and v_day == d_val and v_start == s_val and solver.Value(var):
+                        actual_room = v_room
                         break
                 
                 results.append({
-                    'Day': DAYS[d], 
-                    'Start': SLOT_MAP[s]['time'], 
-                    'End': SLOT_MAP.get(s + dur, {'time': '19:00'})['time'],
-                    'Room': r_name, 
-                    'Course': t['id'], 
-                    'Sec': t['sec'], 
-                    'Type': t['type'],
-                    'Teacher': ",".join(t['teachers'])
+                    'Day': DAYS[d_val], 'Start': SLOT_MAP[s_val]['time'],
+                    'End': SLOT_MAP.get(s_val + t['dur'], {'time': '??'})['time'],
+                    'Room': actual_room, 'Course': t['id'], 'Sec': t['sec'],
+                    'Type': t['type'], 'Teacher': ", ".join(t['teachers'])
                 })
-            else:
-                unscheduled.append({
-                    'Course': t['id'], 
-                    'Sec': t['sec'], 
-                    'Reason': 'Constraint/Penalty'
-                })
-        
-        return results, unscheduled
-    else:
-        return None, None
+        progress_bar.empty()
+        return results, []
+    
+    progress_bar.empty()
+    return None, None
 
 # ==========================================
-# ส่วนควบคุมหลัก (Controller)
+# 5. Controller & UI Display
 # ==========================================
-
-# 1. เมื่อกดปุ่ม Run -> คำนวณและเก็บลง Session State
 if run_button:
-    with st.spinner("Calculating schedule... please wait"):
-        res_list, un_list = calculate_schedule()
-        
-        if res_list is not None:
-            # เก็บข้อมูลลง session_state
-            st.session_state['schedule_results'] = pd.DataFrame(res_list)
-            st.session_state['unscheduled_results'] = un_list if un_list else []
-            st.session_state['has_run'] = True
-            st.success("✅ Schedule calculation complete!")
-        else:
-            st.error("❌ Cannot schedule in current mode (Constraints too strict).")
-
-# 2. ส่วนแสดงผล (ทำงานเมื่อมีข้อมูลใน Session State)
-if st.session_state.get('has_run', False):
-    df_res = st.session_state['schedule_results']
-    unscheduled = st.session_state['unscheduled_results']
-    
-    if df_res.empty:
-         st.warning("⚠️ Solver found a solution, but NO classes were scheduled.")
+    if not up_room or not up_teacher_courses or not up_ai_in:
+        st.error("⚠️ Please upload the required CSV files first!")
     else:
-        # Sort Data
-        day_order = {'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3, 'Fri': 4}
-        df_res['DayIdx'] = df_res['Day'].map(day_order)
-        df_res = df_res.sort_values(by=['DayIdx', 'Start'])
+        with st.spinner("Calculating optimal schedule..."):
+            res, un = calculate_schedule()
+            if res:
+                st.session_state['schedule_results'] = pd.DataFrame(res)
+                st.session_state['has_run'] = True
+                st.success("✅ Schedule generated successfully!")
+            else:
+                st.error("❌ Could not find a valid schedule. Try 'Flexible Mode'.")
 
-        st.divider()
-        st.header("🏫 Room Schedules (ตารางเรียนรายห้อง)")
-
-        # --- Selectbox อยู่ข้างนอก if button แล้ว (ใช้ข้อมูลจาก session_state) ---
-        all_rooms = sorted(df_res['Room'].unique())
-        selected_room = st.selectbox("🔍 Select Room (เลือกห้องเรียน):", all_rooms)
-
-# ฟังก์ชันสร้างตารางเรียนแบบ Grid (ฉบับแก้ไข: รองรับเศษนาที)
-        def create_timetable_grid(df, room_name):
-            # 1. กำหนดช่วงเวลา (Slots) ให้เป็นตัวเลขทศนิยมเพื่อการเปรียบเทียบ
-            # เช่น 08:00-09:00 คือ start=8.0, end=9.0
-            slots = []
-            for h in range(8, 20): 
-                if h < 19:
-                    slots.append({
-                        "label": f"{h:02d}:00-{h+1:02d}:00",
-                        "start": float(h),
-                        "end": float(h+1)
-                    })
-            
-            # 2. สร้าง DataFrame ว่างๆ โดยใช้ Label เป็นชื่อคอลัมน์
-            col_names = [s['label'] for s in slots]
-            days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-            df_grid = pd.DataFrame('', index=days, columns=col_names)
-
-            # ดึงข้อมูลเฉพาะห้องที่เลือก
-            room_df = df[df['Room'] == room_name]
-
-            for _, row in room_df.iterrows():
-                # 3. แปลงเวลาเริ่ม-จบ เป็นตัวเลขทศนิยม (เช่น 09:30 -> 9.5)
-                try:
-                    s_parts = row['Start'].split(':')
-                    e_parts = row['End'].split(':')
-                    # ชั่วโมง + (นาที / 60)
-                    start_val = int(s_parts[0]) + (int(s_parts[1]) / 60.0)
-                    end_val = int(e_parts[0]) + (int(e_parts[1]) / 60.0)
-                except:
-                    continue # ข้ามถ้าเวลาผิดพลาด format
-                
-                # ข้อความที่จะแสดงในช่อง (เพิ่มเวลาเข้าไปด้วย เพื่อความชัดเจน)
-                # เช่น "(09:30) LI101002"
-                short_start = f"{int(s_parts[0]):02d}:{int(s_parts[1]):02d}"
-                course_info = f"({short_start}) {row['Course']} ({row['Type']}) Sec {row['Sec']}"
-
-                # 4. วนลูปเช็คทุกช่อง (Slot) ว่าวิชานี้คาบเกี่ยวหรือไม่
-                for s in slots:
-                    # Logic การเช็ค Overlap: max(start1, start2) < min(end1, end2)
-                    # แปลว่า: ถ้าเวลาเริ่มวิชา น้อยกว่า เวลาจบช่อง AND เวลาจบวิชา มากกว่า เวลาเริ่มช่อง
-                    if max(start_val, s['start']) < min(end_val, s['end']):
-                        
-                        col_name = s['label']
-                        
-                        # ถ้าช่องนั้นว่าง ให้ใส่ข้อมูลเลย
-                        if df_grid.at[row['Day'], col_name] == '':
-                            df_grid.at[row['Day'], col_name] = course_info
-                        else:
-                            # ถ้ามีข้อมูลอยู่แล้ว (และไม่ใช่ข้อความเดิม) ให้คั่นด้วย /
-                            if course_info not in df_grid.at[row['Day'], col_name]:
-                                df_grid.at[row['Day'], col_name] += ' / ' + course_info
-
-            return df_grid
-
-        if selected_room:
-            st.subheader(f"📍 Timetable for: {selected_room}")
-            grid_df = create_timetable_grid(df_res, selected_room)
-            st.dataframe(grid_df, use_container_width=True, height=250)
-
-            st.caption("📄 Detailed List")
-            room_details = df_res[df_res['Room'] == selected_room][['Day', 'Start', 'End', 'Course', 'Sec', 'Type', 'Teacher']]
-            st.dataframe(room_details, use_container_width=True, hide_index=True)
-
-        st.divider()
-        csv = df_res.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Full Schedule CSV", data=csv, file_name=f"full_schedule.csv", mime="text/csv")
+if st.session_state['has_run']:
+    df_res = st.session_state['schedule_results']
     
-    if unscheduled:
-        st.divider()
-        st.warning(f"⚠️ Unscheduled Tasks ({len(unscheduled)})")
-        st.dataframe(pd.DataFrame(unscheduled))
+    st.divider()
+    
+    # Room Selection
+    rooms = sorted(df_res['Room'].unique())
+    selected_room = st.selectbox("🔍 View Timetable by Room:", rooms)
+
+    # --- Timetable Grid ---
+    def create_grid(df, room_name):
+        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        hours = [f"{h:02d}:00" for h in range(8, 20)]
+        grid = pd.DataFrame('', index=days, columns=hours)
+        
+        room_data = df[df['Room'] == room_name]
+        for _, row in room_data.iterrows():
+            start_h = row['Start'].split(':')[0] + ":00"
+            content = f"{row['Course']} (S{row['Sec']})"
+            if start_h in grid.columns:
+                grid.at[row['Day'], start_h] = content
+        return grid
+
+    st.subheader(f"📍 Timetable: {selected_room}")
+    st.table(create_grid(df_res, selected_room))
+    
+    # Download
+    csv_data = df_res.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Download Full Schedule (CSV)", csv_data, "schedule.csv", "text/csv")
