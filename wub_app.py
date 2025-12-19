@@ -7,7 +7,7 @@ import os
 from collections import defaultdict
 
 # ==========================================
-# 1. Page Config & CSS (Visuals)
+# 1. Page Config & CSS
 # ==========================================
 st.set_page_config(page_title="Automatic Scheduler Pro", layout="wide")
 
@@ -34,18 +34,12 @@ def get_slot_map():
     SLOT_MAP = {}
     t_start = 8.5
     idx = 0
-    LUNCH_START = 12.5
-    LUNCH_END = 13.0
+    LUNCH_START, LUNCH_END = 12.5, 13.0
     while t_start < 19.0:
-        hour = int(t_start)
-        minute = int((t_start - hour) * 60)
+        hour, minute = int(t_start), int((t_start - int(t_start)) * 60)
         time_str = f"{hour:02d}:{minute:02d}"
-        SLOT_MAP[idx] = {
-            'time': time_str, 'val': t_start,
-            'is_lunch': (t_start >= LUNCH_START and t_start < LUNCH_END)
-        }
-        idx += 1
-        t_start += 0.5
+        SLOT_MAP[idx] = {'time': time_str, 'val': t_start, 'is_lunch': (t_start >= LUNCH_START and t_start < LUNCH_END)}
+        idx += 1; t_start += 0.5
     return SLOT_MAP
 
 def time_to_slot_index(time_str, slot_to_index_map):
@@ -53,56 +47,41 @@ def time_to_slot_index(time_str, slot_to_index_map):
     match = re.search(r"(\d{1,2})[:.](\d{2})", time_str)
     if match:
         h, m = match.groups()
-        time_str = f"{int(h):02d}:{int(m):02d}"
-        if time_str in slot_to_index_map:
-            return slot_to_index_map[time_str]
+        formatted = f"{int(h):02d}:{int(m):02d}"
+        return slot_to_index_map.get(formatted, -1)
     return -1
 
 def parse_unavailable_time(unavailable_input, days_list, slot_to_index_map):
     unavailable_slots_by_day = {d_idx: set() for d_idx in range(len(days_list))}
-    target_list = []
-    if isinstance(unavailable_input, list): target_list = unavailable_input
-    elif isinstance(unavailable_input, str): target_list = [unavailable_input]
-    else: return unavailable_slots_by_day
+    if not unavailable_input: return unavailable_slots_by_day
+    target_list = unavailable_input if isinstance(unavailable_input, list) else [str(unavailable_input)]
 
     for item in target_list:
-        if isinstance(item, list): ut_str = item[0] if len(item) > 0 else ""
-        else: ut_str = str(item)
-
-        ut_str = ut_str.replace('[', '').replace(']', '').replace("'", "").replace('"', "")
+        ut_str = str(item).replace('[', '').replace(']', '').replace("'", "").replace('"', "")
         match = re.search(r"(\w{3})\s+(\d{1,2}[:.]\d{2})-(\d{1,2}[:.]\d{2})", ut_str)
         if not match: continue
-
-        day_abbr, start_time_str, end_time_str = match.groups()
-        start_time_str = start_time_str.replace('.', ':')
-        end_time_str = end_time_str.replace('.', ':')
-
-        try: day_idx = days_list.index(day_abbr)
+        day_abbr, start_t, end_t = match.groups()
+        try:
+            day_idx = days_list.index(day_abbr)
+            s_slot = time_to_slot_index(start_t, slot_to_index_map)
+            e_slot = time_to_slot_index(end_t, slot_to_index_map)
+            if s_slot != -1 and e_slot != -1:
+                for slot in range(s_slot, e_slot): unavailable_slots_by_day[day_idx].add(slot)
         except ValueError: continue
-
-        start_slot = time_to_slot_index(start_time_str, slot_to_index_map)
-        end_slot = time_to_slot_index(end_time_str, slot_to_index_map)
-
-        if start_slot == -1 or end_slot == -1 or start_slot >= end_slot: continue
-        for slot in range(start_slot, end_slot):
-            unavailable_slots_by_day[day_idx].add(slot)
     return unavailable_slots_by_day
 
 # ==========================================
 # 3. Main Scheduler Logic
 # ==========================================
-# เพิ่ม Parameter: solver_time, penalty_score
 def calculate_schedule(files, mode, solver_time, penalty_score):
     logs = []
-    
-    # 1. Setup Time Slots
     SLOT_MAP = get_slot_map()
-    TOTAL_SLOTS = len(SLOT_MAP)
     DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
     SLOT_TO_INDEX = {v['time']: k for k, v in SLOT_MAP.items()}
-    
-    # 2. Load Data
+    TOTAL_SLOTS = len(SLOT_MAP)
+
     try:
+        # Load Data
         df_room = pd.read_csv(files['room'])
         room_list = df_room.to_dict('records')
         room_list.append({'room': 'Online', 'capacity': 9999, 'type': 'virtual'})
@@ -111,253 +90,186 @@ def calculate_schedule(files, mode, solver_time, penalty_score):
         df_ai_in = pd.read_csv(files['ai_in'])
         df_cy_in = pd.read_csv(files['cy_in'])
         all_teacher = pd.read_csv(files['teachers'])
+
+        # Data Cleaning
+        for df in [df_teacher_courses, df_ai_in, df_cy_in]:
+            df.columns = df.columns.str.strip()
         
-        # Clean Data
-        df_teacher_courses.columns = df_teacher_courses.columns.str.strip()
-        df_ai_in.columns = df_ai_in.columns.str.strip()
-        df_cy_in.columns = df_cy_in.columns.str.strip()
-
-        df_courses = pd.concat([df_ai_in, df_cy_in], ignore_index=True)
-        if 'lec_online' not in df_courses.columns: df_courses['lec_online'] = 0
-        if 'lab_online' not in df_courses.columns: df_courses['lab_online'] = 0
+        df_courses = pd.concat([df_ai_in, df_cy_in], ignore_index=True).fillna(0)
         if 'optional' not in df_courses.columns: df_courses['optional'] = 1
-        df_courses = df_courses.fillna(0)
-
-        df_teacher_courses['course_code'] = df_teacher_courses['course_code'].astype(str).str.strip()
-        df_courses['course_code'] = df_courses['course_code'].astype(str).str.strip()
-
-        teacher_map = {}
+        
+        teacher_map = defaultdict(list)
         for _, row in df_teacher_courses.iterrows():
-            c_code = row['course_code']
-            t_id = str(row['teacher_id']).strip()
-            if c_code not in teacher_map: teacher_map[c_code] = []
-            teacher_map[c_code].append(t_id)
+            teacher_map[str(row['course_code']).strip()].append(str(row['teacher_id']).strip())
 
         all_teacher['teacher_id'] = all_teacher['teacher_id'].astype(str).str.strip()
-        TEACHER_UNAVAILABLE_SLOTS = {}
-        for _, row in all_teacher.iterrows():
-            parsed = parse_unavailable_time(row.get('unavailable_times'), DAYS, SLOT_TO_INDEX)
-            TEACHER_UNAVAILABLE_SLOTS[row['teacher_id']] = parsed
+        TEACHER_UNAVAILABLE_SLOTS = {row['teacher_id']: parse_unavailable_time(row.get('unavailable_times'), DAYS, SLOT_TO_INDEX) for _, row in all_teacher.iterrows()}
 
+        # Fixed Schedule
         fixed_schedule = []
-        fixed_files_map = []
-        if files['ai_out']: fixed_files_map.append(('ai_out_courses.csv', files['ai_out']))
-        if files['cy_out']: fixed_files_map.append(('cy_out_courses.csv', files['cy_out']))
-
-        for fname, fobj in fixed_files_map:
-            try:
-                df_fixed = pd.read_csv(fobj)
-                logs.append(f"Found fixed data in {fname}: {len(df_fixed)} items")
-                for _, row in df_fixed.iterrows():
+        for key in ['ai_out', 'cy_out']:
+            if files[key]:
+                df_f = pd.read_csv(files[key])
+                logs.append(f"Found fixed data in {key}: {len(df_f)} items")
+                for _, row in df_f.iterrows():
                     day_str = str(row['day']).strip()[:3]
                     course_code = str(row['course_code']).strip()
                     sec = int(row['section']) if str(row['section']).isdigit() else 0
-                    room = str(row['room']).strip()
-                    start_time = str(row['start']).strip()
                     lec_h = row.get('lecture_hour', 0)
                     lab_h = row.get('lab_hour', 0)
-                    if pd.isna(lec_h): lec_h = 0
-                    if pd.isna(lab_h): lab_h = 0
-
                     if lec_h > 0:
-                         fixed_schedule.append({'course': course_code, 'sec': sec, 'type': 'Lec', 
-                                                'room': room, 'day': day_str, 'start': start_time, 'duration': int(math.ceil(lec_h * 2))})
+                        fixed_schedule.append({'course': course_code, 'sec': sec, 'type': 'Lec', 'room': str(row['room']), 'day': day_str, 'start': str(row['start']), 'duration': int(math.ceil(lec_h * 2))})
                     if lab_h > 0:
-                         fixed_schedule.append({'course': course_code, 'sec': sec, 'type': 'Lab', 
-                                                'room': room, 'day': day_str, 'start': start_time, 'duration': int(math.ceil(lab_h * 2))})
-            except Exception as e:
-                logs.append(f"Error reading fixed file {fname}: {e}")
+                        fixed_schedule.append({'course': course_code, 'sec': sec, 'type': 'Lab', 'room': str(row['room']), 'day': day_str, 'start': str(row['start']), 'duration': int(math.ceil(lab_h * 2))})
 
-    except Exception as e:
-        return None, None, [f"Critical Data Error: {e}"]
+        # Task Prep
+        tasks = []
+        MAX_LEC_SESSION_SLOTS = 6
+        course_opt_map = df_courses.set_index(['course_code', 'section'])['optional'].to_dict()
 
-    # 3. Task Preparation
-    tasks = []
-    MAX_LEC_SESSION_SLOTS = 6
-    course_optional_map = df_courses.set_index(['course_code', 'section'])['optional'].to_dict()
+        for lock in fixed_schedule:
+            uid = f"{lock['course']}_S{lock['sec']}_{lock['type']}"
+            tasks.append({
+                'uid': uid, 'id': lock['course'], 'sec': lock['sec'], 'type': lock['type'], 'dur': lock['duration'],
+                'std': 50, 'teachers': teacher_map.get(lock['course'], ['External_Faculty']),
+                'fixed_room': True, 'target_room': lock['room'], 'is_optional': course_opt_map.get((lock['course'], lock['sec']), 1)
+            })
 
-    for lock in fixed_schedule:
-        uid = f"{lock['course']}_S{lock['sec']}_{lock['type']}"
-        course_match = df_courses[(df_courses['course_code'] == lock['course']) & (df_courses['section'] == lock['sec'])]
-        is_online_lec = course_match['lec_online'].iloc[0] == 1 if not course_match.empty else False
-        is_online_lab = course_match['lab_online'].iloc[0] == 1 if not course_match.empty else False
-        is_task_online = is_online_lec if lock['type'] == 'Lec' else is_online_lab
-        
-        tasks.append({
-            'uid': uid, 'id': lock['course'], 'sec': lock['sec'], 'type': lock['type'],
-            'dur': lock['duration'], 
-            'std': course_match['enrollment_count'].iloc[0] if not course_match.empty else 50,
-            'teachers': teacher_map.get(lock['course'], ['External_Faculty']),
-            'is_online': is_task_online,
-            'is_optional': course_optional_map.get((lock['course'], lock['sec']), 1),
-            'fixed_room': True
-        })
+        for _, row in df_courses.iterrows():
+            c, s = str(row['course_code']).strip(), int(row['section'])
+            # Lec Split
+            curr_lec = int(math.ceil(row['lecture_hour'] * 2))
+            part = 1
+            while curr_lec > 0:
+                dur = min(curr_lec, MAX_LEC_SESSION_SLOTS)
+                uid = f"{c}_S{s}_Lec_P{part}"
+                if not any(t['uid'] == uid for t in tasks):
+                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lec', 'dur': dur, 'std': row['enrollment_count'], 'teachers': teacher_map.get(c, ['Unknown']), 'is_optional': row['optional'], 'is_online': row.get('lec_online') == 1})
+                curr_lec -= dur; part += 1
+            # Lab
+            lab_dur = int(math.ceil(row['lab_hour'] * 2))
+            if lab_dur > 0:
+                uid = f"{c}_S{s}_Lab"
+                if not any(t['uid'] == uid for t in tasks):
+                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lab', 'dur': lab_dur, 'std': row['enrollment_count'], 'teachers': teacher_map.get(c, ['Unknown']), 'is_optional': row['optional'], 'is_online': row.get('lab_online') == 1, 'req_ai': row.get('require_lab_ai') == 1, 'req_network': row.get('require_lab_network') == 1})
 
-    for _, row in df_courses.iterrows():
-        teachers = teacher_map.get(row['course_code'], ['Unknown'])
-        curr_lec = int(math.ceil(row['lecture_hour'] * 2))
-        part = 1
-        while curr_lec > 0:
-            dur = min(curr_lec, MAX_LEC_SESSION_SLOTS)
-            uid = f"{row['course_code']}_S{row['section']}_Lec_P{part}"
-            if not any(t['uid'] == uid for t in tasks):
-                tasks.append({
-                    'uid': uid, 'id': row['course_code'], 'sec': row['section'], 'type': 'Lec',
-                    'dur': dur, 'std': row['enrollment_count'], 'teachers': teachers,
-                    'is_online': (row['lec_online'] == 1), 'is_optional': row['optional']
-                })
-            curr_lec -= dur
-            part += 1
-        
-        lab_slots = int(math.ceil(row['lab_hour'] * 2))
-        if lab_slots > 0:
-            uid = f"{row['course_code']}_S{row['section']}_Lab"
-            if not any(t['uid'] == uid for t in tasks):
-                tasks.append({
-                    'uid': uid, 'id': row['course_code'], 'sec': row['section'], 'type': 'Lab',
-                    'dur': lab_slots, 'std': row['enrollment_count'], 'teachers': teachers,
-                    'is_online': (row['lab_online'] == 1), 'is_optional': row['optional'],
-                    'req_ai': (row.get('require_lab_ai', 0) == 1),
-                    'req_network': (row.get('require_lab_network', 0) == 1)
-                })
+        # Model Building
+        model = cp_model.CpModel()
+        schedule_vars, is_scheduled, task_vars = {}, {}, {}
+        penalty_vars, lec_lab_penalties, objective_terms = [], [], []
 
-    # 4. Solver Model
-    model = cp_model.CpModel()
-    schedule = {}
-    is_scheduled = {}
-    task_vars = {}
-    penalty_vars = []
-    objective_terms = []
-
-    SCORE_FIXED = 1000000 
-    SCORE_CORE = 1000
-    SCORE_ELEC = 100
-
-    for t in tasks:
-        uid = t['uid']
-        is_scheduled[uid] = model.NewBoolVar(f"sched_{uid}")
-        t_day = model.NewIntVar(0, len(DAYS)-1, f"d_{uid}")
-        t_start = model.NewIntVar(0, TOTAL_SLOTS-1, f"s_{uid}")
-        model.Add(model.NewIntVar(0, TOTAL_SLOTS+10, f"e_{uid}") == t_start + t['dur'])
-        task_vars[uid] = {'day': t_day, 'start': t_start}
-
-        candidates = []
-        for r in room_list:
-            if t['is_online']: 
-                if r['room'] != 'Online': continue
-            else:
-                if r['room'] == 'Online': continue
-                if r['capacity'] < t['std']: continue
-                if t['type'] == 'Lab' and 'lab' not in r['type']: continue
-                if t.get('req_ai', False) and r['room'] != 'lab_ai': continue
-                if t.get('req_network', False) and r['room'] != 'lab_network': continue
-
-            for d_idx in range(len(DAYS)):
-                for s_idx in SLOT_MAP:
-                    s_val = SLOT_MAP[s_idx]['val']
-                    e_val = s_val + (t['dur'] * 0.5)
-
-                    if mode == 1:
-                        if s_val < 9.0 or e_val > 16.0: continue
-                    else: # Mode 2
-                        if s_idx + t['dur'] > TOTAL_SLOTS: continue
-
-                    if any(SLOT_MAP.get(s_idx + i, {}).get('is_lunch', False) for i in range(t['dur'])): continue
-
-                    conflict = False
-                    for tid in t['teachers']:
-                        if tid in ['External_Faculty', 'Unknown']: continue
-                        if tid in TEACHER_UNAVAILABLE_SLOTS:
-                            unavail = TEACHER_UNAVAILABLE_SLOTS[tid].get(d_idx, set())
-                            task_s = set(range(s_idx, s_idx + t['dur']))
-                            if not task_s.isdisjoint(unavail): 
-                                conflict = True; break
-                    if conflict: continue
-
-                    var = model.NewBoolVar(f"{uid}_{r['room']}_{d_idx}_{s_idx}")
-                    schedule[(uid, r['room'], d_idx, s_idx)] = var
-                    candidates.append(var)
-                    
-                    model.Add(t_day == d_idx).OnlyEnforceIf(var)
-                    model.Add(t_start == s_idx).OnlyEnforceIf(var)
-
-                    # ✅ ใช้ตัวแปร penalty_score ที่รับเข้ามา
-                    if mode == 2 and (s_val < 9.0 or e_val > 16.0):
-                        # คูณคะแนนด้วย penalty_score (ถ้าผู้ใช้ตั้งสูง โทษก็จะหนักขึ้น)
-                        penalty_vars.append(var * penalty_score)
-
-        if not candidates:
-            model.Add(is_scheduled[uid] == 0)
-            logs.append(f"Warning: Task {uid} has no valid placement options.")
-        else:
-            model.Add(sum(candidates) == 1).OnlyEnforceIf(is_scheduled[uid])
-            model.Add(sum(candidates) == 0).OnlyEnforceIf(is_scheduled[uid].Not())
-
-        if 'fixed_room' in t: objective_terms.append(is_scheduled[uid] * SCORE_FIXED)
-        elif t.get('is_optional') == 0: objective_terms.append(is_scheduled[uid] * SCORE_CORE)
-        else: objective_terms.append(is_scheduled[uid] * SCORE_ELEC)
-
-    # 5. Overlap Constraints
-    for d in range(len(DAYS)):
-        for s in range(TOTAL_SLOTS):
-            for r in [rm['room'] for rm in room_list if rm['room'] != 'Online']:
-                active = []
-                for t in tasks:
-                    for offset in range(t['dur']):
-                        if (t['uid'], r, d, s - offset) in schedule:
-                            active.append(schedule[(t['uid'], r, d, s - offset)])
-                if active: model.Add(sum(active) <= 1)
-            
-            all_t = set(tea for t in tasks for tea in t['teachers'] if tea != 'Unknown')
-            for tea in all_t:
-                active = []
-                for t in tasks:
-                    if tea in t['teachers']:
-                        for r in [rm['room'] for rm in room_list]:
-                             for offset in range(t['dur']):
-                                if (t['uid'], r, d, s - offset) in schedule:
-                                    active.append(schedule[(t['uid'], r, d, s - offset)])
-                if active: model.Add(sum(active) <= 1)
-
-    # 6. Solve
-    model.Maximize(sum(objective_terms) - sum(penalty_vars))
-    solver = cp_model.CpSolver()
-    
-    # ✅ ใช้ตัวแปร solver_time ที่รับเข้ามา
-    solver.parameters.max_time_in_seconds = solver_time 
-    
-    status = solver.Solve(model)
-
-    res, unsched = [], []
-    if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
         for t in tasks:
             uid = t['uid']
-            if uid in is_scheduled and solver.Value(is_scheduled[uid]):
-                d = solver.Value(task_vars[uid]['day'])
-                s = solver.Value(task_vars[uid]['start'])
-                r_name = "Unknown"
-                for (tid, r, dx, sx), var in schedule.items():
-                    if tid == uid and dx == d and sx == s and solver.Value(var):
-                        r_name = r; break
+            is_scheduled[uid] = model.NewBoolVar(f"sched_{uid}")
+            t_day = model.NewIntVar(0, len(DAYS)-1, f"d_{uid}")
+            t_start = model.NewIntVar(0, TOTAL_SLOTS-1, f"s_{uid}")
+            t_end = model.NewIntVar(0, TOTAL_SLOTS+10, f"e_{uid}")
+            model.Add(t_end == t_start + t['dur'])
+            task_vars[uid] = {'day': t_day, 'start': t_start, 'end': t_end}
+
+            candidates = []
+            for r in room_list:
+                if t.get('is_online'):
+                    if r['room'] != 'Online': continue
+                else:
+                    if r['room'] == 'Online': continue
+                    if r['capacity'] < t['std']: continue
+                    if t['type'] == 'Lab' and 'lab' not in str(r.get('type', '')).lower(): continue
+                    if t.get('req_ai') and r['room'] != 'lab_ai': continue
+                    if t.get('req_network') and r['room'] != 'lab_network': continue
                 
-                start_str = SLOT_MAP[s]['time']
-                end_str = SLOT_MAP.get(s + t['dur'], {'time': '19:00'})['time']
-                
-                notes = []
-                if t['is_online']: notes.append("Online")
-                s_val = SLOT_MAP[s]['val']
-                e_val = s_val + (t['dur'] * 0.5)
-                if s_val < 9.0 or e_val > 16.0: notes.append("Ext.Time")
-                
-                res.append({
-                    'Day': DAYS[d], 'Start': start_str, 'End': end_str, 'Room': r_name,
-                    'Course': t['id'], 'Sec': t['sec'], 'Type': t['type'], 
-                    'Teacher': ",".join(t['teachers']), 'Note': ", ".join(notes)
-                })
+                # FIXED ROOM CONSTRAINT
+                if t.get('fixed_room') and r['room'] != t['target_room']: continue
+
+                for d_idx in range(len(DAYS)):
+                    for s_idx in range(TOTAL_SLOTS - t['dur'] + 1):
+                        s_v, e_v = SLOT_MAP[s_idx]['val'], SLOT_MAP[s_idx]['val'] + (t['dur'] * 0.5)
+                        if mode == 1 and (s_v < 9.0 or e_v > 16.0): continue
+                        if any(SLOT_MAP[s_idx + i]['is_lunch'] for i in range(t['dur'])): continue
+                        
+                        # Teacher Unavailability
+                        t_conf = False
+                        for tid in t['teachers']:
+                            if tid in TEACHER_UNAVAILABLE_SLOTS:
+                                if not set(range(s_idx, s_idx + t['dur'])).isdisjoint(TEACHER_UNAVAILABLE_SLOTS[tid][d_idx]):
+                                    t_conf = True; break
+                        if t_conf: continue
+
+                        v = model.NewBoolVar(f"{uid}_{r['room']}_{d_idx}_{s_idx}")
+                        schedule_vars[(uid, r['room'], d_idx, s_idx)] = v
+                        candidates.append(v)
+                        model.Add(t_day == d_idx).OnlyEnforceIf(v)
+                        model.Add(t_start == s_idx).OnlyEnforceIf(v)
+                        if mode == 2 and (s_v < 9.0 or e_v > 16.0): penalty_vars.append(v * penalty_score)
+
+            if candidates:
+                model.Add(sum(candidates) == 1).OnlyEnforceIf(is_scheduled[uid])
+                model.Add(sum(candidates) == 0).OnlyEnforceIf(is_scheduled[uid].Not())
             else:
-                unsched.append({'Course': t['id'], 'Sec': t['sec'], 'Type': t['type'], 'Reason': 'Solver/Constraints'})
-    
-    return pd.DataFrame(res), pd.DataFrame(unsched), logs
+                model.Add(is_scheduled[uid] == 0)
+                logs.append(f"Warning: Task {uid} has no valid placement.")
+
+            score = 1000000 if t.get('fixed_room') else (1000 if t['is_optional'] == 0 else 100)
+            objective_terms.append(is_scheduled[uid] * score)
+
+        # Overlap Constraints (Room & Teacher)
+        for d in range(len(DAYS)):
+            for s in range(TOTAL_SLOTS):
+                for r in [rm['room'] for rm in room_list if rm['room'] != 'Online']:
+                    active = [schedule_vars[k] for k in schedule_vars if k[1] == r and k[2] == d and k[3] <= s < k[3] + next(x['dur'] for x in tasks if x['uid'] == k[0])]
+                    if active: model.Add(sum(active) <= 1)
+                
+                all_tea = set(tea for tk in tasks for tea in tk['teachers'] if tea != 'Unknown')
+                for tea in all_tea:
+                    active = [schedule_vars[k] for k in schedule_vars if tea in next(x['teachers'] for x in tasks if x['uid'] == k[0]) and k[2] == d and k[3] <= s < k[3] + next(x['dur'] for x in tasks if x['uid'] == k[0])]
+                    if active: model.Add(sum(active) <= 1)
+
+        # Lec/Lab Order Penalty
+        course_sec_map = defaultdict(lambda: {'Lec': [], 'Lab': []})
+        for t in tasks: course_sec_map[f"{t['id']}_S{t['sec']}"][t['type']].append(t['uid'])
+        for cid, tlists in course_sec_map.items():
+            if tlists['Lec'] and tlists['Lab']:
+                for lec_u in tlists['Lec']:
+                    for lab_u in tlists['Lab']:
+                        both = model.NewBoolVar(f"both_{lec_u}_{lab_u}")
+                        model.AddBoolAnd([is_scheduled[lec_u], is_scheduled[lab_u]]).OnlyEnforceIf(both)
+                        wrong_day = model.NewBoolVar(f"wd_{lec_u}_{lab_u}")
+                        model.Add(task_vars[lec_u]['day'] > task_vars[lab_u]['day']).OnlyEnforceIf([both, wrong_day])
+                        lec_lab_penalties.append(wrong_day)
+                        same_day = model.NewBoolVar(f"sd_{lec_u}_{lab_u}")
+                        model.Add(task_vars[lec_u]['day'] == task_vars[lab_u]['day']).OnlyEnforceIf([both, same_day])
+                        wrong_time = model.NewBoolVar(f"wt_{lec_u}_{lab_u}")
+                        model.Add(task_vars[lec_u]['end'] > task_vars[lab_u]['start']).OnlyEnforceIf([both, same_day, wrong_time])
+                        lec_lab_penalties.append(wrong_time)
+
+        model.Maximize(sum(objective_terms) - sum(penalty_vars) - sum(lec_lab_penalties) * 10)
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = solver_time
+        status = solver.Solve(model)
+
+        res_list, unsched_list = [], []
+        cols = ['Day', 'Start', 'End', 'Room', 'Course', 'Sec', 'Type', 'Teacher', 'Note']
+        
+        if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+            for t in tasks:
+                uid = t['uid']
+                if solver.Value(is_scheduled[uid]):
+                    d_idx, s_idx = solver.Value(task_vars[uid]['day']), solver.Value(task_vars[uid]['start'])
+                    rm_name = next(k[1] for k, v in schedule_vars.items() if k[0] == uid and k[2] == d_idx and k[3] == s_idx and solver.Value(v))
+                    notes = ([ "Online" ] if t.get('is_online') else []) + ([ "Ext.Time" ] if SLOT_MAP[s_idx]['val'] < 9.0 or (SLOT_MAP[s_idx]['val'] + t['dur']*0.5) > 16.0 else [])
+                    res_list.append({'Day': DAYS[d_idx], 'Start': SLOT_MAP[s_idx]['time'], 'End': SLOT_MAP.get(s_idx+t['dur'], {'time': '19:00'})['time'], 'Room': rm_name, 'Course': t['id'], 'Sec': t['sec'], 'Type': t['type'], 'Teacher': ",".join(t['teachers']), 'Note': ", ".join(notes)})
+                else:
+                    unsched_list.append({'Course': t['id'], 'Sec': t['sec'], 'Type': t['type'], 'Reason': 'Constraints'})
+            df_res = pd.DataFrame(res_list)
+            if not df_res.empty:
+                df_res['DayIdx'] = df_res['Day'].apply(lambda x: DAYS.index(x))
+                df_res = df_res.sort_values(['DayIdx', 'Start']).drop(columns='DayIdx')
+            else: df_res = pd.DataFrame(columns=cols)
+            return df_res, pd.DataFrame(unsched_list), logs
+        else:
+            return pd.DataFrame(columns=cols), pd.DataFrame(unsched_list), logs + ["Solver could not find a solution."]
+            
+    except Exception as e: return None, None, [f"Critical Error: {e}"]
 
 # ==========================================
 # 4. Streamlit UI
@@ -375,89 +287,55 @@ files = {
 
 st.sidebar.divider()
 st.sidebar.header("⚙️ 2. Configuration")
-
-# ✅ เพิ่มตัวแปรปรับได้ใน Sidebar ตามข้อ 3
-mode_sel = st.sidebar.radio("Scheduling Mode:", [1, 2], 
-                            format_func=lambda x: "1: Compact (09:00-16:00)" if x==1 else "2: Flexible (08:30-19:00)")
-
-solver_time_limit = st.sidebar.slider("Solver Time Limit (Seconds):", 10, 300, 120)
-penalty_val = st.sidebar.slider("Penalty Score (Ext. Time):", 0, 100, 10, help="Higher penalty means solver will strongly avoid 08:30 or 16:30+")
+mode_sel = st.sidebar.radio("Mode:", [1, 2], format_func=lambda x: "1: Compact (09-16)" if x==1 else "2: Flexible (08:30-19:00)")
+solver_time_limit = st.sidebar.slider("Solver Time (Sec):", 10, 300, 120)
+penalty_val = st.sidebar.slider("Penalty (Ext. Time):", 0, 100, 10)
 
 if st.button("🚀 Run Scheduler", use_container_width=True):
-    missing = [k for k, v in files.items() if v is None and 'out' not in k]
-    if missing:
-        st.error(f"Missing required files: {', '.join(missing)}")
+    req = ['room', 'teacher_courses', 'ai_in', 'cy_in', 'teachers']
+    if any(files[k] is None for k in req): st.error("Please upload all required files.")
     else:
-        with st.spinner("Running Logic..."):
-            # ✅ ส่งค่า solver_time_limit และ penalty_val ไปยังฟังก์ชัน
+        with st.status("Solving...", expanded=True) as status:
             df_res, df_un, logs = calculate_schedule(files, mode_sel, solver_time_limit, penalty_val)
-            
-            with st.expander("📝 Process Logs", expanded=False):
-                for log in logs: st.write(log)
-
-            if df_res is not None and not df_res.empty:
+            for l in logs: st.write(l)
+            if df_res is not None:
                 st.session_state['res'], st.session_state['un'] = df_res, df_un
-                st.success(f"Scheduled {len(df_res)} classes!")
-            else:
-                st.error("No schedule generated. Check logs or constraints.")
+                status.update(label="✅ Completed!", state="complete")
 
-# --- Visualization ---
-if 'res' in st.session_state:
-    df_res = st.session_state['res']
-    df_un = st.session_state['un']
-
-    # ✅ เพิ่มมุมมองอาจารย์ ตามข้อ 2
+if 'res' in st.session_state and not st.session_state['res'].empty:
+    df_res, df_un = st.session_state['res'], st.session_state['un']
     view_mode = st.radio("View By:", ["Room", "Teacher"], horizontal=True)
-    
     if view_mode == "Room":
         target = st.selectbox("Select Room:", sorted(df_res['Room'].unique()))
         filtered = df_res[df_res['Room'] == target]
     else:
         all_t = sorted(list(set([t.strip() for ts in df_res['Teacher'] for t in str(ts).split(',')])))
         target = st.selectbox("Select Teacher:", all_t)
-        filtered = df_res[df_res['Teacher'].str.contains(target)]
+        filtered = df_res[df_res['Teacher'].str.contains(target, na=False)]
 
-    # HTML Render (Blue Box)
     days_map = {'Mon': 'จันทร์', 'Tue': 'อังคาร', 'Wed': 'พุธ', 'Thu': 'พฤหัสบดี', 'Fri': 'ศุกร์'}
-    time_cols = [f"{h:02d}:{m:02d}" for h in range(8, 19) for m in [0, 30]][1:] # 08:30 start
-    
+    time_cols = [f"{h:02d}:{m:02d}" for h in range(8, 19) for m in [0, 30]][1:]
     html = f"<div class='tt-container'><table class='tt-table'><tr class='tt-header'><th>Day</th>"
     for t in time_cols: html += f"<th>{t}</th>"
     html += "</tr>"
-
     for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']:
         html += f"<tr><td class='tt-day'>{days_map[day]}</td>"
         day_data = filtered[filtered['Day'] == day]
-        
         curr_t = 8.5
         while curr_t < 19.0:
-            h, m = int(curr_t), int((curr_t%1)*60)
-            t_str = f"{h:02d}:{m:02d}"
-            
-            # Find class starting here
+            t_str = f"{int(curr_t):02d}:{int((curr_t%1)*60):02d}"
             match = day_data[day_data['Start'] == t_str]
             if not match.empty:
                 row = match.iloc[0]
-                # Calc duration
                 sh, sm = map(int, row['Start'].split(':'))
                 eh, em = map(int, row['End'].split(':'))
-                dur_units = int(((eh + em/60) - (sh + sm/60)) * 2)
-                
-                html += f"<td colspan='{dur_units}'><div class='class-box'>"
-                html += f"<span class='c-code'>{row['Course']}</span>"
-                html += f"<span>(S{row['Sec']}) {row['Type']}</span>"
-                html += f"<span>{row['Teacher']}</span>"
-                if row['Note']: html += f"<span style='color:red; font-size:9px'>{row['Note']}</span>"
+                units = int(((eh + em/60) - (sh + sm/60)) * 2)
+                html += f"<td colspan='{units}'><div class='class-box'><span class='c-code'>{row['Course']}</span><span>(S{row['Sec']}) {row['Type']}</span><span>{row.get('Teacher','Unknown')}</span>"
+                if row.get('Note'): html += f"<span style='color:red; font-size:9px'>{row['Note']}</span>"
                 html += "</div></td>"
-                curr_t += (dur_units * 0.5)
-            else:
-                html += "<td></td>"
-                curr_t += 0.5
-        html += "</tr>"
-    html += "</table></div>"
-    
-    st.markdown(html, unsafe_allow_html=True)
-
-    if not df_un.empty:
-        st.warning(f"Unscheduled Tasks: {len(df_un)}")
-        st.dataframe(df_un)
+                curr_t += (units * 0.5)
+            else: html += "<td></td>"; curr_t += 0.5
+    st.markdown(html + "</table></div>", unsafe_allow_html=True)
+    if not df_un.empty: st.warning(f"Unscheduled: {len(df_un)} tasks"); st.dataframe(df_un)
+elif 'res' in st.session_state:
+    st.error("No schedule found. Please try increasing Solver Time or reducing Penalty.")
