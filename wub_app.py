@@ -8,21 +8,42 @@ from collections import defaultdict
 # ==========================================
 # 1. Page Config & CSS (ตารางรูปแบบ Blue Box)
 # ==========================================
-st.set_page_config(page_title="Automatic Scheduler Pro", layout="wide")
-
 st.markdown("""
 <style>
-    .tt-container { overflow-x: auto; font-family: 'Helvetica', sans-serif; margin-top: 20px; }
-    .tt-table { width: 100%; border-collapse: collapse; min-width: 1200px; }
-    .tt-table th, .tt-table td { border: 1px solid #dee2e6; text-align: center; padding: 4px; font-size: 11px; height: 75px; }
-    .tt-header { background-color: #343a40; color: white; position: sticky; left: 0; }
-    .tt-day { background-color: #f8f9fa; font-weight: bold; width: 75px; position: sticky; left: 0; z-index: 10; border-right: 2px solid #ccc; font-size: 13px;}
-    .class-box { 
-        background-color: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 6px;
-        padding: 4px; height: 95%; display: flex; flex-direction: column; justify-content: center;
-        color: #084298; box-shadow: 1px 1px 3px rgba(0,0,0,0.1); font-size: 10px; line-height: 1.2;
+    /* ... ส่วนอื่นคงเดิม ... */
+
+    .tt-header { 
+        background-color: #343a40; 
+        color: #ffffff !important; /* บังคับตัวอักษรหัวตารางเป็นสีขาว */
+        position: sticky; 
+        left: 0; 
     }
-    .c-code { font-weight: bold; text-decoration: underline; font-size: 12px; color: #004085; }
+
+    .tt-day { 
+        background-color: #f8f9fa; 
+        color: #333333 !important; /* แก้ไข: บังคับตัวอักษรชื่อวันเป็นสีดำ/เทาเข้ม */
+        font-weight: bold; 
+        width: 60px; 
+        position: sticky; 
+        left: 0; 
+        z-index: 10; 
+        border-right: 2px solid #ccc; 
+    }
+
+    .class-box { 
+        background-color: #e7f1ff; 
+        border: 1px solid #b6d4fe; 
+        border-radius: 4px;
+        padding: 2px; 
+        height: 100%; 
+        display: flex; 
+        flex-direction: column; 
+        justify-content: center;
+        color: #084298 !important; /* บังคับตัวอักษรในกล่องวิชาเป็นสีน้ำเงินเข้ม */
+        box-shadow: 1px 1px 2px rgba(0,0,0,0.1); 
+        font-size: 10px; 
+        line-height: 1.2;
+    }
 </style>
 """, unsafe_allow_html=True)
 
