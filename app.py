@@ -458,15 +458,10 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # ตรวจสอบไฟล์ default
-    default_files = check_default_files()
-    if default_files:
-        st.info(f"ℹ️ พบไฟล์ default {len(default_files)} ไฟล์ในระบบ (ถ้าไม่อัปโหลด จะใช้ไฟล์เหล่านี้)")
-
     st.sidebar.header("📂 1. อัปโหลดข้อมูล")
     
     with st.sidebar.expander("📋 ไฟล์บังคับ (5 ไฟล์)", expanded=True):
-        uploaded_files = {
+        up_files = {
             'room': st.sidebar.file_uploader("1️⃣ room.csv", type="csv", key="room"),
             'teacher_courses': st.sidebar.file_uploader("2️⃣ teacher_courses.csv", type="csv", key="tc"),
             'ai_in': st.sidebar.file_uploader("3️⃣ ai_in_courses.csv", type="csv", key="ai_in"),
@@ -475,22 +470,8 @@ def main():
         }
     
     with st.sidebar.expander("📌 ไฟล์ตารางคงที่ (Optional)"):
-        uploaded_files['ai_out'] = st.sidebar.file_uploader("6️⃣ ai_out_courses.csv", type="csv", key="ai_out")
-        uploaded_files['cy_out'] = st.sidebar.file_uploader("7️⃣ cy_out_courses.csv", type="csv", key="cy_out")
-
-    # รวมไฟล์ที่อัปโหลดกับไฟล์ default
-    up_files = {}
-    for key in DEFAULT_FILES.keys():
-        up_files[key] = load_file(uploaded_files.get(key), DEFAULT_FILES.get(key))
-    
-    # แสดงสถานะไฟล์
-    with st.sidebar.expander("📊 สถานะไฟล์", expanded=False):
-        for key, file_obj in up_files.items():
-            if file_obj is not None:
-                source = "📤 Uploaded" if uploaded_files.get(key) is not None else "📁 Default"
-                st.success(f"✓ {DEFAULT_FILES[key]} ({source})")
-            else:
-                st.warning(f"✗ {DEFAULT_FILES[key]} (ไม่มี)")
+        up_files['ai_out'] = st.sidebar.file_uploader("6️⃣ ai_out_courses.csv", type="csv", key="ai_out")
+        up_files['cy_out'] = st.sidebar.file_uploader("7️⃣ cy_out_courses.csv", type="csv", key="cy_out")
 
     st.sidebar.divider()
     
