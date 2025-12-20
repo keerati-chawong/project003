@@ -28,7 +28,7 @@ st.markdown("""
 # ==========================================
 def get_slot_map():
     slots = {}
-    t_start = 8. 5
+    t_start = 8.5
     idx = 0
     while t_start <= 19. 5:
         h, m = int(t_start), round((t_start % 1) * 60)
