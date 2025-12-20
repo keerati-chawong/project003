@@ -7,7 +7,7 @@ import os
 from collections import defaultdict
 
 # ==========================================
-# 1. Page Config & CSS (แก้ไขสีหัวตารางและกล่องวิชาให้อ่านออกชัดเจน)
+# 1. Page Config & CSS (แก้ไขสีหัวตารางให้อ่านออกชัดเจน)
 # ==========================================
 st.set_page_config(page_title="Automatic Scheduler Pro", layout="wide")
 
@@ -16,7 +16,7 @@ st.markdown("""
     .tt-container { overflow-x: auto; font-family: 'Helvetica', sans-serif; margin-top: 20px; }
     .tt-table { width: 100%; border-collapse: collapse; min-width: 1200px; }
     
-    /* หัวตาราง: พื้นหลังมืด ฟอนต์ขาวชัดเจน */
+    /* หัวตาราง: พื้นหลังเข้ม ฟอนต์ขาวชัดเจน */
     .tt-table th { 
         background-color: #343a40 !important; 
         color: #ffffff !important; 
@@ -33,7 +33,7 @@ st.markdown("""
         background-color: #f8f9fa !important; 
         color: #333333 !important; 
         font-weight: bold !important; 
-        width: 85px; 
+        width: 80px; 
         position: sticky; 
         left: 0; 
         z-index: 10; 
@@ -57,7 +57,7 @@ def get_slot_map():
     slots = {}
     t_start = 8.5
     idx = 0
-    while t_start <= 19.5: # ขยายครอบคลุมเวลาเลิก คาบ 19:00
+    while t_start <= 19.0: # ครอบคลุมถึงเวลาเลิก 19:00 เพื่อไม่ให้ Crash
         h, m = int(t_start), round((t_start % 1) * 60)
         slots[idx] = {'time': f"{h:02d}:{m:02d}", 'val': t_start, 'is_lunch': (12.5 <= t_start < 13.0)}
         idx += 1; t_start += 0.5
@@ -89,7 +89,7 @@ def parse_unavailable_time(input_val, days_list, slot_inv):
     return un_slots
 
 # ==========================================
-# 3. Solver Engine (Optimized & Resource Efficient)
+# 3. Solver Engine
 # ==========================================
 def calculate_schedule(data_dict, mode, solver_time, penalty_val):
     SLOT_MAP = get_slot_map()
@@ -100,7 +100,6 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
     try:
         room_list = data_dict['room'].to_dict('records')
         room_list.append({'room': 'Online', 'capacity': 9999, 'type': 'virtual'})
-        
         df_tc = data_dict['teacher_courses']
         df_courses = pd.concat([data_dict['ai_in'], data_dict['cy_in']], ignore_index=True).fillna(0)
         df_teacher = data_dict['all_teachers']
@@ -111,7 +110,7 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
         
         un_map = {str(row['teacher_id']).strip(): parse_unavailable_time(row.get('unavailable_times'), DAYS, SLOT_INV) for _, row in df_teacher.iterrows()}
 
-        # 1. Fixed Schedule (Force Room 9127 and others)
+        # 1. Fixed Schedule
         fixed_tasks = []
         for key in ['ai_out', 'cy_out']:
             if data_dict[key] is not None:
@@ -121,35 +120,31 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
                     s_i = time_to_slot_index(r['start'], SLOT_INV)
                     dur = int(math.ceil((r.get('lecture_hour', 0) + r.get('lab_hour', 0)) * 2))
                     if d_i != -1 and s_i != -1:
-                        r_name = str(r['room'])
-                        if not any(rm['room'] == r_name for rm in room_list):
-                            room_list.append({'room': r_name, 'capacity': 999, 'type': 'lecture'})
-                        
                         fixed_tasks.append({
-                            'uid': f"FIX_{r['course_code']}_S{r['section']}_{r_name}",
+                            'uid': f"FIX_{r['course_code']}_S{r['section']}_{r.get('room')}",
                             'id': str(r['course_code']), 'sec': int(r['section']), 'dur': dur, 'type': 'Fixed',
                             'tea': teacher_map.get(str(r['course_code']).strip(), ['-']),
-                            'fixed_room': True, 'target_room': r_name, 'f_d': d_i, 'f_s': s_i
+                            'fixed_room': True, 'target_room': str(r['room']), 'f_d': d_i, 'f_s': s_i
                         })
 
         # 2. Dynamic Tasks
         tasks = []
-        for _, r in df_courses.iterrows():
-            c, s = str(r['course_code']).strip(), int(r['section'])
-            tea, opt = teacher_map.get(c, ['Unknown']), r.get('optional', 1)
-            lec_slots = int(math.ceil(r['lecture_hour'] * 2))
+        for _, row in df_courses.iterrows():
+            c, s = str(row['course_code']).strip(), int(row['section'])
+            tea, opt = teacher_map.get(c, ['Unknown']), row.get('optional', 1)
+            lec_slots = int(math.ceil(row['lecture_hour'] * 2))
             p = 1
             while lec_slots > 0:
                 dur = min(lec_slots, 6)
                 uid = f"{c}_S{s}_Lec_P{p}"
                 if not any(tk['uid'].startswith(f"FIX_{c}_S{s}") for tk in fixed_tasks):
-                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lec', 'dur': dur, 'std': r.get('enrollment_count', 0), 'tea': tea, 'opt': opt, 'online': r.get('lec_online')==1})
+                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lec', 'dur': dur, 'std': row['enrollment_count'], 'tea': tea, 'opt': opt, 'online': row.get('lec_online')==1})
                 lec_slots -= dur; p += 1
-            lab_dur = int(math.ceil(r['lab_hour'] * 2))
+            lab_dur = int(math.ceil(row['lab_hour'] * 2))
             if lab_dur > 0:
                 uid = f"{c}_S{s}_Lab"
                 if not any(tk['uid'].startswith(f"FIX_{c}_S{s}") for tk in fixed_tasks):
-                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lab', 'dur': lab_dur, 'std': r.get('enrollment_count', 0), 'tea': tea, 'opt': opt, 'online': r.get('lab_online')==1})
+                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lab', 'dur': lab_dur, 'std': row['enrollment_count'], 'tea': tea, 'opt': opt, 'online': row.get('lab_online')==1})
 
         # 3. Solver Setup
         model = cp_model.CpModel()
@@ -167,12 +162,11 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
             if t.get('fixed_room'):
                 model.Add(t_d == t['f_d']); model.Add(t_s == t['f_s'])
 
-            task_cands = []
             for r in room_list:
                 if t.get('online') and r['room'] != 'Online': continue
                 if not t.get('online') and (r['room'] == 'Online' or r['capacity'] < t.get('std', 0)): continue
                 if t.get('fixed_room') and r['room'] != t['target_room']: continue
-                if 'lab' in t.get('type','').lower() and 'lab' not in str(r.get('type','')).lower(): continue
+                if t.get('type') == 'Lab' and 'lab' not in str(r.get('type','')).lower(): continue
 
                 for d in range(5):
                     for s in range(TOTAL_SLOTS - t['dur']):
@@ -183,21 +177,15 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
 
                         v = model.NewBoolVar(f"{uid}_{r['room']}_{d}_{s}")
                         vars[(uid, r['room'], d, s)] = v
-                        task_cands.append(v)
                         model.Add(t_d == d).OnlyEnforceIf(v); model.Add(t_s == s).OnlyEnforceIf(v)
-                        
-                        if mode == 2 and (sv < 9.0 or (sv + t['dur']*0.5) > 16.0):
-                            pen_terms.append(v * penalty_val)
-                            
+                        if mode == 2 and (sv < 9.0 or (sv + t['dur']*0.5) > 16.0): pen_terms.append(v * penalty_val)
                         for i in range(t['dur']):
                             room_lookup[r['room']][d][s+i].append(v)
                             for tid in t['tea']: tea_lookup[tid][d][s+i].append(v)
 
-            if task_cands: model.Add(sum(task_cands) == is_sched[uid])
-            else: model.Add(is_sched[uid] == 0)
+            model.Add(sum(vars[k] for k in vars if k[0] == uid) == 1).OnlyEnforceIf(is_sched[uid])
             obj_terms.append(is_sched[uid] * (1000000 if t.get('fixed_room') else (1000 if t.get('opt')==0 else 100)))
 
-        # No overlap constraints (Optimized Speed)
         for lookup in [room_lookup, tea_lookup]:
             for k in lookup:
                 for d in lookup[k]:
@@ -207,7 +195,6 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
         model.Maximize(sum(obj_terms) - sum(pen_terms))
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = solver_time
-        solver.parameters.num_search_workers = 4 # กินทรัพยากรน้อยลงแต่เสถียร
         status = solver.Solve(model)
 
         res_final = []
@@ -215,31 +202,29 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
             for t in (fixed_tasks + tasks):
                 uid = t['uid']
                 if solver.Value(is_sched[uid]):
-                    d_val, s_val = solver.Value(task_vars[uid]['d']), solver.Value(task_vars[uid]['s'])
-                    # Safe Python 3.13 loop logic (Avoid 'i' scope issue)
+                    d, s = solver.Value(task_vars[uid]['d']), solver.Value(task_vars[uid]['s'])
                     room_name = "Unknown"
+                    # Safe Python 3.13 loop
                     for k, v in vars.items():
-                        if k[0] == uid and k[2] == d_val and k[3] == s_val and solver.Value(v):
+                        if k[0] == uid and k[2] == d and k[3] == s and solver.Value(v):
                             room_name = k[1]; break
-                    
-                    notes = (["Online"] if t.get('online') else []) + (["Ext.Time"] if SLOT_MAP[s_val]['val'] < 9.0 or (SLOT_MAP[s_val]['val'] + t['dur']*0.5) > 16.0 else [])
-                    res_final.append({'Day': DAYS[d_val], 'Start': SLOT_MAP[s_val]['time'], 'End': SLOT_MAP[s_val+t['dur']]['time'], 'Room': room_name, 'Course': t['id'], 'Sec': t['sec'], 'Type': t.get('type','-'), 'Teacher': ",".join(t['tea']), 'Note': ", ".join(notes)})
+                    notes = (["Online"] if t.get('online') else []) + (["Ext.Time"] if SLOT_MAP[s]['val'] < 9.0 or (SLOT_MAP[s]['val'] + t['dur']*0.5) > 16.0 else [])
+                    res_final.append({'Day': DAYS[d], 'Start': SLOT_MAP[s]['time'], 'End': SLOT_MAP[s+t['dur']]['time'], 'Room': room_name, 'Course': t['id'], 'Sec': t['sec'], 'Type': t.get('type','-'), 'Teacher': ",".join(t['tea']), 'Note': ", ".join(notes)})
             return pd.DataFrame(res_final)
         return None
     except Exception as e:
-        st.error(f"❌ Solver Error: {e}")
+        st.error(f"❌ Error Detail: {e}")
         return None
 
 # ==========================================
-# 4. UI Layout (Sidebar, Upload & Config)
+# 4. Streamlit UI (พร้อมระบบ Fallback ค่าเดิม)
 # ==========================================
 st.sidebar.header("📂 1. อัปโหลดข้อมูล (7 ไฟล์)")
 
 def load_data_file(file_key, default_name):
-    # ตรวจสอบการอัปโหลดไฟล์
     up = st.sidebar.file_uploader(f"Upload {default_name}", type="csv")
     if up: return pd.read_csv(up)
-    # ระบบ Fallback: ถ้านำไฟล์ไปวางใน Repo จะรันค่าเดิมได้ทันที
+    # Fallback ระบบตรวจสอบไฟล์ต้นฉบับในเครื่อง
     if os.path.exists(default_name): return pd.read_csv(default_name)
     return None
 
@@ -255,44 +240,42 @@ df_dict = {
 
 st.sidebar.divider()
 st.sidebar.header("⚙️ 2. ตั้งค่า Solver")
-mode_sel = st.sidebar.radio("โหมดการจัด:", [1, 2], format_func=lambda x: "Compact (09-16)" if x==1 else "Flexible (08:30-19)")
-solver_t = st.sidebar.slider("เวลาประมวลผล (วินาที):", 10, 600, 120)
-penalty_v = st.sidebar.slider("Penalty Score (หักคะแนน Ext.Time):", 0, 100, 10)
+mode_sel = st.sidebar.radio("โหมด:", [1, 2], format_func=lambda x: "Compact (09-16)" if x==1 else "Flexible (08:30-19)")
+solver_t = st.sidebar.slider("เวลาคำนวณสูงสุด (วินาที):", 10, 600, 120) # ข้อ 3
+penalty_v = st.sidebar.slider("คะแนนบทลงโทษ (Penalty):", 0, 100, 10) # ข้อ 3
 
-# ==========================================
-# 5. Main Controller
-# ==========================================
 if st.button("🚀 Run Automatic Scheduler", use_container_width=True):
+    # ตรวจสอบไฟล์บังคับ 5 ไฟล์
     mandatory = ['room', 'teacher_courses', 'ai_in', 'cy_in', 'all_teachers']
     if any(df_dict[k] is None for k in mandatory):
-        st.error("❌ ข้อมูลไม่ครบ กรุณาอัปโหลดไฟล์ หรือตรวจสอบว่ามีไฟล์เริ่มต้นอยู่ใน Repo")
+        st.error("❌ กรุณาอัปโหลดไฟล์บังคับ 5 ไฟล์แรก หรือตรวจสอบว่ามีไฟล์เริ่มต้นอยู่ในโฟลเดอร์")
     else:
-        with st.status("🤖 AI กำลังคำนวณตารางที่ดีที่สุด...", expanded=True) as status:
+        with st.status("🤖 กำลังจัดตารางที่ดีที่สุด...", expanded=True) as status:
             df_res = calculate_schedule(df_dict, mode_sel, solver_t, penalty_v)
             if df_res is not None and not df_res.empty:
-                st.session_state['res_df'], st.session_state['run_done'] = df_res, True
+                st.session_state['res_df'] = df_res
+                st.session_state['run_done'] = True
                 status.update(label="✅ จัดตารางสำเร็จ!", state="complete")
-            else: st.error("❌ หาคำตอบไม่ได้ (ลองเพิ่มเวลาหรือลด Penalty)")
+            else: st.error("❌ ไม่สามารถหาคำตอบได้ (ลองเพิ่มเวลา Solver หรือลด Penalty)")
 
 # ==========================================
-# 6. Visualization (Room & Teacher View)
+# 5. Visualization (มุมมองห้อง และ มุมมองอาจารย์)
 # ==========================================
 if st.session_state.get('run_done'):
     df_res = st.session_state['res_df']
     
-    # เงื่อนไขข้อ 2: มุมมองตารางสอนอาจารย์
+    # ข้อ 2: มุมมองตารางสอนอาจารย์
     view_mode = st.radio("เลือกมุมมอง:", ["รายห้อง (Room View)", "รายอาจารย์ (Teacher View)"], horizontal=True)
     
     if view_mode == "รายห้อง (Room View)":
         target = st.selectbox("เลือกห้อง:", sorted(df_res['Room'].unique()))
         filt_df = df_res[df_res['Room'] == target]
     else:
-        # ดึงรายชื่ออาจารย์จากคอลัมน์ผลลัพธ์
         all_t = sorted(list(set([i.strip() for s in df_res['Teacher'] for i in str(s).split(',') if i.strip() != '-'])))
         target = st.selectbox("เลือกรายชื่ออาจารย์:", all_t)
         filt_df = df_res[df_res['Teacher'].str.contains(target, na=False)]
 
-    # HTML Timetable Generator (Blue Box Style)
+    # HTML Timetable Generator
     days_map = {'Mon': 'จันทร์', 'Tue': 'อังคาร', 'Wed': 'พุธ', 'Thu': 'พฤหัสบดี', 'Fri': 'ศุกร์'}
     time_headers = [f"{h:02d}:{m:02d}" for h in range(8, 19) for m in [0, 30]][1:]
     
@@ -308,11 +291,11 @@ if st.session_state.get('run_done'):
             t_str = f"{int(curr):02d}:{round((curr%1)*60):02d}"
             match = d_data[d_data['Start'] == t_str]
             if not match.empty:
-                r = match.iloc[0]
-                sh, sm = map(int, r['Start'].split(':')); eh, em = map(int, r['End'].split(':'))
+                row = match.iloc[0]
+                sh, sm = map(int, row['Start'].split(':')); eh, em = map(int, row['End'].split(':'))
                 span = int(((eh + em/60) - (sh + sm/60)) * 2)
-                html += f"<td colspan='{span}'><div class='class-box'><span class='c-code'>{r['Course']}</span><span>(S{r['Sec']}) {r['Type']}</span><span>{r['Teacher']}</span>"
-                if "Ext.Time" in str(r['Note']): html += f"<span style='color:red; font-size:9px'>Ext.Time</span>"
+                html += f"<td colspan='{span}'><div class='class-box'><span class='c-code'>{row['Course']}</span><span>(S{row['Sec']}) {row['Type']}</span><span>{row['Teacher']}</span>"
+                if "Ext.Time" in str(row['Note']): html += f"<span style='color:red; font-size:9px'>Ext.Time</span>"
                 html += "</div></td>"; curr += (span * 0.5)
             else: html += "<td></td>"; curr += 0.5
         html += "</tr>"
