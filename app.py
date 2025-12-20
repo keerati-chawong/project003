@@ -4,7 +4,6 @@ from ortools.sat.python import cp_model
 import math
 import re
 from collections import defaultdict
-import io
 
 # ==========================================
 # PAGE CONFIG
@@ -25,12 +24,6 @@ st.markdown("""
         margin-bottom: 2rem;
         color: white;
         text-align: center;
-    }
-    .upload-section {
-        background-color: #f8f9fa;
-        padding: 1.5rem;
-        border-radius: 8px;
-        margin-bottom: 1rem;
     }
     .tt-container { 
         overflow-x: auto; 
@@ -239,7 +232,7 @@ def calculate_schedule(files, mode, solver_time, penalty_val):
             for _, row in df_teacher.iterrows()
         }
 
-        # 1. Fixed Tasks (จากไฟล์ ai_out, cy_out)
+        # 1. Fixed Tasks
         fixed_tasks = []
         for key in ['ai_out', 'cy_out']:
             if files[key]:
@@ -310,10 +303,13 @@ def calculate_schedule(files, mode, solver_time, penalty_val):
 
         # 3. CP-SAT Model
         model = cp_model.CpModel()
-        vars, is_sched, task_vars = {}, {}, {}
+        vars_dict = {}
+        is_sched = {}
+        task_vars = {}
         room_lookup = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         tea_lookup = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-        obj_terms, pen_terms = [], []
+        obj_terms = []
+        pen_terms = []
 
         for t in (fixed_tasks + tasks):
             uid = t['uid']
@@ -327,9 +323,7 @@ def calculate_schedule(files, mode, solver_time, penalty_val):
                 model.Add(t_d == t['f_d'])
                 model.Add(t_s == t['f_s'])
 
-            # สร้าง variables สำหรับทุก (room, day, slot) ที่เป็นไปได้
             for r in room_list:
-                # ตรวจสอบเงื่อนไข room
                 if t.get('online') and r['room'] != 'Online':
                     continue
                 if not t.get('online') and (r['room'] == 'Online' or r['capacity'] < t.get('std', 0)):
@@ -344,42 +338,34 @@ def calculate_schedule(files, mode, solver_time, penalty_val):
                         sv = SLOT_MAP[si]['val']
                         ev = sv + t['dur'] * 0.5
                         
-                        # Mode 1: Compact (09:00-16:00 only)
                         if mode == 1 and (sv < 9.0 or ev > 16.0):
                             continue
                         
-                        # ตรวจสอบเวลาพักกลางวัน
                         if any(SLOT_MAP[si+i]['is_lunch'] for i in range(t['dur'])):
                             continue
                         
-                        # ตรวจสอบเวลาว่างของอาจารย์
                         if any(tid in un_map and si+i in un_map[tid][di] 
                                for tid in t['tea'] for i in range(t['dur'])):
                             continue
 
                         v = model.NewBoolVar(f"{uid}_{r['room']}_{di}_{si}")
-                        vars[(uid, r['room'], di, si)] = v
+                        vars_dict[(uid, r['room'], di, si)] = v
                         model.Add(t_d == di).OnlyEnforceIf(v)
                         model.Add(t_s == si).OnlyEnforceIf(v)
                         
-                        # Mode 2: Flexible แต่มี penalty นอกเวลา
                         if mode == 2 and (sv < 9.0 or ev > 16.0):
                             pen_terms.append(v * penalty_val)
                         
-                        # เก็บ lookup สำหรับ conflict checking
                         for i in range(t['dur']):
                             room_lookup[r['room']][di][si+i].append(v)
                             for tid in t['tea']:
                                 tea_lookup[tid][di][si+i].append(v)
 
-            # แต่ละ task ต้องเลือก slot เดียว
-            model.Add(sum(vars[k] for k in vars if k[0] == uid) == 1).OnlyEnforceIf(is_sched[uid])
+            model.Add(sum(vars_dict[k] for k in vars_dict if k[0] == uid) == 1).OnlyEnforceIf(is_sched[uid])
             
-            # Objective: ให้น้ำหนักสูงกับ fixed tasks และวิชาบังคับ
             weight = 1000000 if t.get('fixed_room') else (1000 if t.get('opt') == 0 else 100)
             obj_terms.append(is_sched[uid] * weight)
 
-        # Conflict constraints
         for lookup in [room_lookup, tea_lookup]:
             for k in lookup:
                 for d in lookup[k]:
@@ -387,15 +373,12 @@ def calculate_schedule(files, mode, solver_time, penalty_val):
                         if len(lookup[k][d][s]) > 1:
                             model.Add(sum(lookup[k][d][s]) <= 1)
 
-        # Maximize objective
         model.Maximize(sum(obj_terms) - sum(pen_terms))
         
-        # Solve
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = solver_time
         status = solver.Solve(model)
 
-        # Extract results
         res_final = []
         if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
             for t in (fixed_tasks + tasks):
@@ -404,14 +387,12 @@ def calculate_schedule(files, mode, solver_time, penalty_val):
                     d = solver.Value(task_vars[uid]['d'])
                     s = solver.Value(task_vars[uid]['s'])
                     
-                    # หาชื่อห้อง
                     room_name = "Unknown"
-                    for k, v in vars.items():
+                    for k, v in vars_dict.items():
                         if k[0] == uid and k[2] == d and k[3] == s and solver.Value(v):
                             room_name = k[1]
                             break
                     
-                    # ตรวจสอบว่าเป็นเวลานอกช่วง
                     start_val = SLOT_MAP[s]['val']
                     end_val = SLOT_MAP[s + t['dur'] - 1]['val']
                     is_extended = start_val < 9.0 or end_val >= 16.0
@@ -440,7 +421,6 @@ def calculate_schedule(files, mode, solver_time, penalty_val):
 # MAIN APP
 # ==========================================
 def main():
-    # Header
     st.markdown("""
     <div class='main-header'>
         <h1>📚 Automatic Scheduler Pro</h1>
@@ -448,25 +428,23 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # Sidebar - Upload Section
     st.sidebar.header("📂 1. อัปโหลดข้อมูล")
     
     with st.sidebar.expander("📋 ไฟล์บังคับ (5 ไฟล์)", expanded=True):
         up_files = {
-            'room': st.file_uploader("1️⃣ room.csv", type="csv", key="room"),
-            'teacher_courses': st.file_uploader("2️⃣ teacher_courses.csv", type="csv", key="tc"),
-            'ai_in': st.file_uploader("3️⃣ ai_in_courses.csv", type="csv", key="ai_in"),
-            'cy_in': st.file_uploader("4️⃣ cy_in_courses.csv", type="csv", key="cy_in"),
-            'all_teachers': st.file_uploader("5️⃣ all_teachers.csv", type="csv", key="teachers"),
+            'room': st.sidebar.file_uploader("1️⃣ room.csv", type="csv", key="room"),
+            'teacher_courses': st.sidebar.file_uploader("2️⃣ teacher_courses.csv", type="csv", key="tc"),
+            'ai_in': st.sidebar.file_uploader("3️⃣ ai_in_courses.csv", type="csv", key="ai_in"),
+            'cy_in': st.sidebar.file_uploader("4️⃣ cy_in_courses.csv", type="csv", key="cy_in"),
+            'all_teachers': st.sidebar.file_uploader("5️⃣ all_teachers.csv", type="csv", key="teachers"),
         }
     
     with st.sidebar.expander("📌 ไฟล์ตารางคงที่ (Optional)"):
-        up_files['ai_out'] = st.file_uploader("6️⃣ ai_out.csv (Fixed Schedule)", type="csv", key="ai_out")
-        up_files['cy_out'] = st.file_uploader("7️⃣ cy_out.csv (Fixed Schedule)", type="csv", key="cy_out")
+        up_files['ai_out'] = st.sidebar.file_uploader("6️⃣ ai_out_courses.csv", type="csv", key="ai_out")
+        up_files['cy_out'] = st.sidebar.file_uploader("7️⃣ cy_out_courses.csv", type="csv", key="cy_out")
 
     st.sidebar.divider()
     
-    # Sidebar - Solver Settings
     st.sidebar.header("⚙️ 2. ตั้งค่า Solver")
     
     mode_sel = st.sidebar.radio(
@@ -494,11 +472,9 @@ def main():
         help="คะแนนลบที่จะหักเมื่อจัดคาบนอกเวลา 09:00-16:00 (ใช้ใน Flexible mode)"
     )
 
-    # Run Button
     st.sidebar.divider()
     run_button = st.sidebar.button("🚀 คำนวณตารางเรียน", use_container_width=True)
 
-    # Main Content
     if run_button:
         mandatory = ['room', 'teacher_courses', 'ai_in', 'cy_in', 'all_teachers']
         if any(up_files[k] is None for k in mandatory):
@@ -520,18 +496,16 @@ def main():
                     st.error("❌ ไม่สามารถหาคำตอบได้ ลองเพิ่มเวลาประมวลผลหรือลด Penalty Score")
                     status.update(label="❌ ล้มเหลว", state="error")
 
-    # Display Results
     if st.session_state.get('run_done'):
         df_res = st.session_state['res_df']
         
-        st.markdown("""
+        st.markdown(f"""
         <div class='success-box'>
             <h3>✅ ตารางเรียนสำเร็จ!</h3>
-            <p>พบรายการทั้งหมด {} รายการ</p>
+            <p>พบรายการทั้งหมด {len(df_res)} รายการ</p>
         </div>
-        """.format(len(df_res)), unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
         
-        # View Mode Selection
         col1, col2 = st.columns([2, 1])
         with col1:
             view_mode = st.radio(
@@ -540,9 +514,7 @@ def main():
                 horizontal=True
             )
         
-        # Filter based on view mode
         if view_mode == "👨‍🏫 รายอาจารย์ (Teacher View)":
-            # แยกรายชื่ออาจารย์ทั้งหมด
             all_teachers = sorted(list(set([
                 i.strip() 
                 for s in df_res['Teacher'] 
@@ -563,16 +535,15 @@ def main():
                 st.info(f"ℹ️ ไม่พบตารางสอนสำหรับ {target}")
                 return
             
-            # สถิติ
-            st.markdown("""
+            st.markdown(f"""
             <div class='info-box'>
                 <strong>📊 สถิติการสอน:</strong><br>
-                • จำนวนคาบสอนทั้งหมด: {} คาบ<br>
-                • จำนวนวิชา: {} วิชา
+                • จำนวนคาบสอนทั้งหมด: {len(filt_df)} คาบ<br>
+                • จำนวนวิชา: {filt_df['Course'].nunique()} วิชา
             </div>
-            """.format(len(filt_df), filt_df['Course'].nunique()), unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
             
-        else:  # Room View
+        else:
             with col2:
                 target = st.selectbox("🔎 เลือกห้อง:", sorted(df_res['Room'].unique()))
             
@@ -582,7 +553,6 @@ def main():
                 st.info(f"ℹ️ ไม่พบตารางสำหรับห้อง {target}")
                 return
 
-        # Generate Timetable HTML
         days_map = {
             'Mon': 'จันทร์',
             'Tue': 'อังคาร',
@@ -616,4 +586,37 @@ def main():
                     
                     html += f"<td colspan='{span}'><div class='class-box'>"
                     html += f"<div class='c-code'>{r['Course']}</div>"
-                    html += f"<div>Section
+                    html += f"<div>Section {r['Sec']} - {r['Type']}</div>"
+                    html += f"<div class='teacher-badge'>{r['Teacher']}</div>"
+                    html += f"<div style='font-size:10px;margin-top:2px;'>🏫 {r['Room']}</div>"
+                    if r['Note']:
+                        html += f"<div class='ext-time-badge'>{r['Note']}</div>"
+                    html += "</div></td>"
+                    curr += (span * 0.5)
+                else:
+                    html += "<td></td>"
+                    curr += 0.5
+            
+            html += "</tr>"
+        
+        html += "</table></div>"
+        
+        st.markdown(html, unsafe_allow_html=True)
+        
+        st.divider()
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            csv_data = df_res.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 Download ตารางเรียน (CSV)",
+                data=csv_data,
+                file_name=f"schedule_{target.replace(' ', '_')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+if 'run_done' not in st.session_state:
+    st.session_state['run_done'] = False
+
+if __name__ == "__main__":
+    main()
