@@ -62,7 +62,7 @@ def parse_unavailable_time(input_val, days_list, slot_inv):
     return un_slots
 
 # ==========================================
-# 3. Solver Logic (Optimized for Flex Mode)
+# 3. Solver Logic (Optimized for Flex Mode) - FIXED
 # ==========================================
 def calculate_schedule(data_dict, mode, solver_time, penalty_val):
     SLOT_MAP = get_slot_map()
@@ -71,8 +71,8 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
     TOTAL_SLOTS = len(SLOT_MAP)
 
     try:
-        room_list = data_dict['room'].to_dict('records')
-        room_list.append({'room': 'Online', 'capacity': 9999, 'type': 'virtual'})
+        room_list = data_dict['room']. to_dict('records')
+        room_list. append({'room': 'Online', 'capacity': 9999, 'type': 'virtual'})
         
         df_tc = data_dict['teacher_courses']
         df_courses = pd.concat([data_dict['ai_in'], data_dict['cy_in']], ignore_index=True).fillna(0)
@@ -82,27 +82,26 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
         for _, row in df_tc.iterrows():
             teacher_map[str(row['course_code']).strip()].append(str(row['teacher_id']).strip())
         
-        un_map = {str(row['teacher_id']).strip(): parse_unavailable_time(row.get('unavailable_times'), DAYS, SLOT_INV) for _, row in df_teacher.iterrows()}
+        un_map = {str(row['teacher_id']).strip(): parse_unavailable_time(row. get('unavailable_times'), DAYS, SLOT_INV) for _, row in df_teacher.iterrows()}
 
         # 1. Fixed Schedule
         fixed_tasks = []
-        for key in ['ai_out', 'cy_out']:
+        for key in ['ai_out', 'cy_out']: 
             if data_dict[key] is not None:
                 df_f = data_dict[key]
                 for _, r in df_f.iterrows():
-                    d_i = DAYS.index(str(r['day'])[:3]) if str(r['day'])[:3] in DAYS else -1
+                    d_i = DAYS. index(str(r['day'])[:3]) if str(r['day'])[:3] in DAYS else -1
                     s_i = time_to_slot_index(r['start'], SLOT_INV)
-                    dur = int(math.ceil((r.get('lecture_hour', 0) + r.get('lab_hour', 0)) * 2))
+                    dur = int(math.ceil((r. get('lecture_hour', 0) + r.get('lab_hour', 0)) * 2))
                     if d_i != -1 and s_i != -1:
-                        # ตรวจสอบห้อง ถ้าไม่มีในรายการให้เพิ่มเข้าไปเพื่อกันห้องหาย
                         r_name = str(r['room'])
                         if not any(rm['room'] == r_name for rm in room_list):
-                            room_list.append({'room': r_name, 'capacity': 999, 'type': 'lecture'})
+                            room_list.append({'room':  r_name, 'capacity':  999, 'type': 'lecture'})
                         
                         fixed_tasks.append({
                             'uid': f"FIX_{r['course_code']}_S{r['section']}_{r_name}",
                             'id': str(r['course_code']), 'sec': int(r['section']), 'dur': dur, 'type': 'Fixed',
-                            'tea': teacher_map.get(str(r['course_code']).strip(), ['-']),
+                            'tea': teacher_map. get(str(r['course_code']).strip(), ['-']),
                             'fixed_room': True, 'target_room': r_name, 'f_d': d_i, 'f_s': s_i
                         })
 
@@ -116,75 +115,110 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
             while lec_slots > 0:
                 dur = min(lec_slots, 6)
                 uid = f"{c}_S{s}_Lec_P{p}"
-                if not any(tk['uid'].startswith(f"FIX_{c}_S{s}") for tk in fixed_tasks):
-                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lec', 'dur': dur, 'std': row.get('enrollment_count', 0), 'tea': tea, 'opt': opt, 'online': row.get('lec_online')==1})
+                if not any(tk['uid']. startswith(f"FIX_{c}_S{s}") for tk in fixed_tasks):
+                    tasks.append({'uid': uid, 'id':  c, 'sec': s, 'type': 'Lec', 'dur': dur, 'std': row. get('enrollment_count', 0), 'tea': tea, 'opt':  opt, 'online': row.get('lec_online')==1})
                 lec_slots -= dur; p += 1
             lab_dur = int(math.ceil(row['lab_hour'] * 2))
             if lab_dur > 0:
                 uid = f"{c}_S{s}_Lab"
                 if not any(tk['uid'].startswith(f"FIX_{c}_S{s}") for tk in fixed_tasks):
-                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lab', 'dur': lab_dur, 'std': row.get('enrollment_count', 0), 'tea': tea, 'opt': opt, 'online': row.get('lab_online')==1})
+                    tasks.append({'uid': uid, 'id': c, 'sec': s, 'type': 'Lab', 'dur': lab_dur, 'std': row.get('enrollment_count', 0), 'tea': tea, 'opt': opt, 'online':  row.get('lab_online')==1})
 
-        # 3. Solver Setup
+        # 3. Solver Setup - FIXED
         model = cp_model.CpModel()
         vars, is_sched, task_vars = {}, {}, {}
         room_lookup = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-        tea_lookup = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        tea_lookup = defaultdict(lambda:  defaultdict(lambda: defaultdict(list)))
         obj_terms, pen_terms = [], []
 
         for t in (fixed_tasks + tasks):
             uid = t['uid']
             is_sched[uid] = model.NewBoolVar(f"sc_{uid}")
-            t_d = model.NewIntVar(0, 4, f"d_{uid}"); t_s = model.NewIntVar(0, TOTAL_SLOTS-1, f"s_{uid}")
+            t_d = model.NewIntVar(0, 4, f"d_{uid}")
+            t_s = model.NewIntVar(0, TOTAL_SLOTS-1, f"s_{uid}")
             model.Add(model.NewIntVar(0, TOTAL_SLOTS+2, f"e_{uid}") == t_s + t['dur'])
-            task_vars[uid] = {'d': t_d, 's': t_s}
-            if t.get('fixed_room'):
-                model.Add(t_d == t['f_d']); model.Add(t_s == t['f_s'])
+            task_vars[uid] = {'d': t_d, 's':  t_s}
+            
+            if t. get('fixed_room'):
+                model.Add(t_d == t['f_d'])
+                model.Add(t_s == t['f_s'])
 
             task_cands = []
+            extended_cands = []  # เก็บ candidates ที่ extend เวลา (สำหรับ mode 2)
+            
             for r in room_list:
-                if t.get('online') and r['room'] != 'Online': continue
-                if not t.get('online') and (r['room'] == 'Online' or r['capacity'] < t.get('std', 0)): continue
+                if t.get('online') and r['room'] != 'Online':  continue
+                if not t.get('online') and (r['room'] == 'Online' or r['capacity'] < t. get('std', 0)): continue
                 if t.get('fixed_room') and r['room'] != t['target_room']: continue
-                if 'lab' in t.get('type','').lower() and 'lab' not in str(r.get('type','')).lower(): continue
+                if 'lab' in t. get('type','').lower() and 'lab' not in str(r. get('type','')).lower(): continue
 
                 for d in range(5):
                     for s in range(TOTAL_SLOTS - t['dur']):
                         sv = SLOT_MAP[s]['val']
-                        if mode == 1 and (sv < 9.0 or (sv + t['dur']*0.5) > 16.0): continue
-                        if any(SLOT_MAP[s+i]['is_lunch'] for i in range(t['dur'])): continue
-                        if any(tid in un_map and s+i in un_map[tid][d] for tid in t['tea'] for i in range(t['dur'])): continue
-
+                        
+                        # ตรวจสอบข้อจำกัด
+                        has_lunch = any(SLOT_MAP[s+i]['is_lunch'] for i in range(t['dur']))
+                        has_teacher_conflict = any(tid in un_map and s+i in un_map[tid][d] for tid in t['tea'] for i in range(t['dur']))
+                        
+                        # Mode-specific constraints
+                        is_out_of_compact_hours = (sv < 9.0 or (sv + t['dur']*0.5) > 16.0)
+                        
+                        if mode == 1 and is_out_of_compact_hours: 
+                            continue  # Mode 1: บังคับเลย ห้ามเลยไป
+                        
+                        if has_lunch or has_teacher_conflict:
+                            continue  # ข้อจำกัด shared
+                        
+                        # สร้าง variable สำหรับ candidate นี้
                         v = model.NewBoolVar(f"{uid}_{r['room']}_{d}_{s}")
                         vars[(uid, r['room'], d, s)] = v
                         task_cands.append(v)
-                        model.Add(t_d == d).OnlyEnforceIf(v); model.Add(t_s == s).OnlyEnforceIf(v)
                         
-                        if mode == 2 and (sv < 9.0 or (sv + t['dur']*0.5) > 16.0):
-                            pen_terms.append(v * penalty_val)
-                            
+                        # Track extended time candidates
+                        if is_out_of_compact_hours:
+                            extended_cands.append(v)
+                        
+                        # Link variable กับ day/slot
+                        model.Add(t_d == d).OnlyEnforceIf(v)
+                        model.Add(t_s == s).OnlyEnforceIf(v)
+                        
+                        # เพิ่ม lookup สำหรับ no-overlap constraints
                         for i in range(t['dur']):
                             room_lookup[r['room']][d][s+i].append(v)
-                            for tid in t['tea']: tea_lookup[tid][d][s+i].append(v)
+                            for tid in t['tea']:
+                                tea_lookup[tid][d][s+i].append(v)
 
-            if task_cands: model.Add(sum(task_cands) == is_sched[uid])
-            else: model.Add(is_sched[uid] == 0)
-            obj_terms.append(is_sched[uid] * (1000000 if t.get('fixed_room') else (1000 if t.get('opt')==0 else 100)))
+            # กำหนด is_sched variable
+            if task_cands:
+                model. Add(sum(task_cands) == is_sched[uid])
+                # ❌ FIX: เมื่อ task ถูก schedule แล้ว ถ้ามีการใช้ extended time ให้ add penalty
+                if mode == 2 and extended_cands:
+                    # เพิ่ม soft constraint:  หากใช้ extended time ให้ลดคะแนน
+                    for v_ext in extended_cands: 
+                        pen_terms.append(v_ext * penalty_val)
+            else:
+                model.Add(is_sched[uid] == 0)
+            
+            # Objective:  maximize scheduled tasks ที่มี weight ตามลำดับความสำคัญ
+            obj_terms. append(is_sched[uid] * (1000000 if t.get('fixed_room') else (1000 if t.get('opt')==0 else 100)))
 
-        # No overlap constraints
+        # No overlap constraints (shared สำหรับทั้ง mode)
         for lookup in [room_lookup, tea_lookup]:
             for k in lookup:
                 for d in lookup[k]:
-                    for s in lookup[k][d]:
-                        if len(lookup[k][d][s]) > 1: model.Add(sum(lookup[k][d][s]) <= 1)
+                    for s in lookup[k][d]: 
+                        if len(lookup[k][d][s]) > 1:
+                            model.Add(sum(lookup[k][d][s]) <= 1)
 
+        # Objective function:  maximize scheduling - minimize extended time penalty
         model.Maximize(sum(obj_terms) - sum(pen_terms))
+        
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = solver_time
         status = solver.Solve(model)
 
         res_final = []
-        if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+        if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]: 
             for t in (fixed_tasks + tasks):
                 uid = t['uid']
                 if solver.Value(is_sched[uid]):
@@ -193,16 +227,16 @@ def calculate_schedule(data_dict, mode, solver_time, penalty_val):
                     room_name = "Unknown"
                     for k, v in vars.items():
                         if k[0] == uid and k[2] == d_val and k[3] == s_val and solver.Value(v):
-                            room_name = k[1]; break
+                            room_name = k[1]
+                            break
                     
-                    notes = (["Online"] if t.get('online') else []) + (["Ext.Time"] if SLOT_MAP[s_val]['val'] < 9.0 or (SLOT_MAP[s_val]['val'] + t['dur']*0.5) > 16.0 else [])
-                    res_final.append({'Day': DAYS[d_val], 'Start': SLOT_MAP[s_val]['time'], 'End': SLOT_MAP[s_val+t['dur']]['time'], 'Room': room_name, 'Course': t['id'], 'Sec': t['sec'], 'Type': t.get('type','-'), 'Teacher': ",".join(t['tea']), 'Note': ", ".join(notes)})
+                    notes = (["Online"] if t.get('online') else []) + (["Ext. Time"] if SLOT_MAP[s_val]['val'] < 9.0 or (SLOT_MAP[s_val]['val'] + t['dur']*0.5) > 16.0 else [])
+                    res_final.append({'Day':  DAYS[d_val], 'Start':  SLOT_MAP[s_val]['time'], 'End': SLOT_MAP[s_val+t['dur']]['time'], 'Room': room_name, 'Course': t['id'], 'Sec': t['sec'], 'Type': t. get('type','-'), 'Teacher': ",".join(t['tea']), 'Note': ", ".join(notes)})
             return pd.DataFrame(res_final)
         return None
     except Exception as e:
         st.error(f"❌ Error: {e}")
         return None
-
 # ==========================================
 # 4. Streamlit UI (Fallback ระบบเดิม)
 # ==========================================
